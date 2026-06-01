@@ -42,7 +42,7 @@ def unswizzle_vllm_fp4_scale(scale_swizzled, m, n, block_size=16):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", type=int, default=8192)
-    parser.add_argument("--output", type=Path, default=Path("bench_vllm_results.json"))
+    parser.add_argument("--output", type=Path, default=Path("result/bench_vllm_results.json"))
     return parser.parse_args()
 
 def main():

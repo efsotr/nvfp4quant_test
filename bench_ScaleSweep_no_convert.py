@@ -19,6 +19,7 @@ from bench_ScaleSweep_MSE_no_convert import (
     _load_normalized_16_cols,
     _max_abs_16,
     _pack_final_code_16_cols,
+    scalesweep_quantize as mse_scalesweep_quantize,
 )
 
 import torch
@@ -194,7 +195,10 @@ def scalesweep_quantize_kernel(
         base_fp8.to(tl.float32) > base_scale
     ).to(tl.int32)
 
-    for i in tl.static_range(0, NUM_CANDIDATES):
+    best_mse = tl.full((BLOCKS_PER_PROGRAM,), float("inf"), tl.float32)
+    best_scale_fp8 = tl.full((BLOCKS_PER_PROGRAM,), 0, tl.float8e4nv)
+
+    for i in tl.range(0, NUM_CANDIDATES, loop_unroll_factor=1):
         raw_i = tl.minimum(
             tl.maximum(base_raw + LOWER_BOUND + i, 1),
             126,
@@ -217,13 +221,9 @@ def scalesweep_quantize_kernel(
             scale_i,
         )
 
-        if i > 0:
-            better = mse_i < best_mse
-            best_mse = tl.where(better, mse_i, best_mse)
-            best_scale_fp8 = tl.where(better, scale_fp8, best_scale_fp8)
-        else:
-            best_mse = mse_i
-            best_scale_fp8 = scale_fp8
+        better = mse_i < best_mse
+        best_mse = tl.where(better, mse_i, best_mse)
+        best_scale_fp8 = tl.where(better, scale_fp8, best_scale_fp8)
 
     tl.store(
         scale_ptr + block_offsets,
@@ -325,7 +325,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", type=int, default=8192)
     parser.add_argument("--imp", type=str, choices=["ones", "ramp", "random"], default="ones")
-    parser.add_argument("--output", type=Path, default=Path("bench_ScaleSweep_no_convert_results.json"))
+    parser.add_argument("--output", type=Path, default=Path("result/bench_ScaleSweep_no_convert_results.json"))
     return parser.parse_args()
 
 
@@ -347,14 +347,23 @@ def main():
         imp = make_imp(args.imp, weight.shape[1], weight.device)
         global_scale, global_scale_inv = get_nvfp4_global_scale(weight, FP8_MAX=256)
 
-        fn = lambda: scalesweep_quantize(
-            weight,
-            imp,
-            global_scale_inv,
-            BLOCK_SIZE,
-            LOWER_BOUND,
-            UPPER_BOUND,
-        )
+        if args.imp == "ones":
+            fn = lambda: mse_scalesweep_quantize(
+                weight,
+                global_scale_inv,
+                BLOCK_SIZE,
+                LOWER_BOUND,
+                UPPER_BOUND,
+            )
+        else:
+            fn = lambda: scalesweep_quantize(
+                weight,
+                imp,
+                global_scale_inv,
+                BLOCK_SIZE,
+                LOWER_BOUND,
+                UPPER_BOUND,
+            )
         ms = tts.do_bench(fn, warmup=10, rep=100)
         scale, code = fn()
 

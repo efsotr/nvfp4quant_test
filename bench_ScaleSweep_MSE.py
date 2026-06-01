@@ -328,6 +328,9 @@ def scalesweep_quantize_kernel(
         base_fp8.to(tl.float32) > base_scale
     ).to(tl.int32)
 
+    best_mse = tl.full((BLOCKS_PER_PROGRAM,), float("inf"), tl.float32)
+    best_scale_fp8 = tl.full((BLOCKS_PER_PROGRAM,), 0, tl.float8e4nv)
+
     for i in tl.static_range(0, NUM_CANDIDATES):
         raw_i = tl.minimum(
             tl.maximum(base_raw + LOWER_BOUND + i, 1),
@@ -347,13 +350,9 @@ def scalesweep_quantize_kernel(
             scale_i,
         )
 
-        if i > 0:
-            better = mse_i < best_mse
-            best_mse = tl.where(better, mse_i, best_mse)
-            best_scale_fp8 = tl.where(better, scale_fp8, best_scale_fp8)
-        else:
-            best_mse = mse_i
-            best_scale_fp8 = scale_fp8
+        better = mse_i < best_mse
+        best_mse = tl.where(better, mse_i, best_mse)
+        best_scale_fp8 = tl.where(better, scale_fp8, best_scale_fp8)
 
     tl.store(
         scale_ptr + block_offsets,
@@ -437,7 +436,7 @@ import triton.testing as tts
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", type=int, default=8192)
-    parser.add_argument("--output", type=Path, default=Path("bench_ScaleSweep_MSE_results.json"))
+    parser.add_argument("--output", type=Path, default=Path("result/bench_ScaleSweep_MSE_results.json"))
     return parser.parse_args()
 
 

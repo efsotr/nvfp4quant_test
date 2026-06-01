@@ -135,7 +135,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", type=int, default=8192)
     parser.add_argument("--fp8-max", type=float, default=448.0)
-    parser.add_argument("--output", type=Path, default=Path("bench_AbsMax_no_convert_results.json"))
+    parser.add_argument("--output", type=Path, default=Path("result/bench_AbsMax_no_convert_results.json"))
     return parser.parse_args()
 
 
