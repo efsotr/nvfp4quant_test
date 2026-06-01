@@ -53,6 +53,7 @@ class KernelCase:
     upper_bound: int | None = None
     fp8_max: float = 256.0
     min_sm: int | None = None
+    scale_layout: str = "linear"
 
 
 KERNEL_CASES = (
@@ -62,6 +63,7 @@ KERNEL_CASES = (
         kind="vllm",
         fp8_max=448.0,
         min_sm=100,
+        scale_layout="swizzled",
     ),
     KernelCase(
         name="ScaleSweep_MSE",
@@ -73,6 +75,16 @@ KERNEL_CASES = (
         min_sm=100,
     ),
     KernelCase(
+        name="ScaleSweep_MSE_swizzled",
+        result_name="triton.ScaleSweep_MSE_swizzled",
+        kind="mse",
+        quantize=mse_scalesweep_quantize,
+        lower_bound=SCALESWEEP_MSE_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_UPPER_BOUND,
+        min_sm=100,
+        scale_layout="swizzled",
+    ),
+    KernelCase(
         name="ScaleSweep",
         result_name="triton.ScaleSweep",
         kind="weighted",
@@ -80,6 +92,16 @@ KERNEL_CASES = (
         lower_bound=SCALESWEEP_LOWER_BOUND,
         upper_bound=SCALESWEEP_UPPER_BOUND,
         min_sm=100,
+    ),
+    KernelCase(
+        name="ScaleSweep_swizzled",
+        result_name="triton.ScaleSweep_swizzled",
+        kind="weighted",
+        quantize=scalesweep_quantize,
+        lower_bound=SCALESWEEP_LOWER_BOUND,
+        upper_bound=SCALESWEEP_UPPER_BOUND,
+        min_sm=100,
+        scale_layout="swizzled",
     ),
     KernelCase(
         name="AbsMax_simulate_fp4",
@@ -97,12 +119,30 @@ KERNEL_CASES = (
         upper_bound=SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
     ),
     KernelCase(
+        name="ScaleSweep_MSE_simulate_fp4_swizzled",
+        result_name="triton.ScaleSweep_MSE_simulate_fp4_swizzled",
+        kind="mse",
+        quantize=mse_scalesweep_simulate_fp4_quantize,
+        lower_bound=SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
+        scale_layout="swizzled",
+    ),
+    KernelCase(
         name="ScaleSweep_simulate_fp4",
         result_name="triton.ScaleSweep_simulate_fp4",
         kind="weighted",
         quantize=scalesweep_simulate_fp4_quantize,
         lower_bound=SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
         upper_bound=SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
+    ),
+    KernelCase(
+        name="ScaleSweep_simulate_fp4_swizzled",
+        result_name="triton.ScaleSweep_simulate_fp4_swizzled",
+        kind="weighted",
+        quantize=scalesweep_simulate_fp4_quantize,
+        lower_bound=SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
+        upper_bound=SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
+        scale_layout="swizzled",
     ),
 )
 KERNEL_CASES_BY_NAME = {case.name: case for case in KERNEL_CASES}
@@ -176,8 +216,22 @@ def make_base_case(args, bsz, *, fp8_max):
     }
 
 
-def append_error_result(results, case, ms, scale, code, extra_metrics=None):
+def scale_for_dequant(kernel, weight, scale):
+    if kernel.scale_layout == "linear":
+        return scale
+    if kernel.scale_layout == "swizzled":
+        return unswizzle_vllm_fp4_scale(
+            scale,
+            m=weight.shape[0],
+            n=weight.shape[1],
+            block_size=BLOCK_SIZE,
+        )
+    raise ValueError(f"unknown scale layout for {kernel.name}: {kernel.scale_layout}")
+
+
+def append_error_result(results, kernel, case, ms, scale, code, extra_metrics=None):
     weight = case["weight"]
+    scale = scale_for_dequant(kernel, weight, scale)
     reconstructed = dequantize("base", code, scale, case["global_scale"])
     mse, max_abs_error = error_stats(weight, reconstructed)
 
@@ -193,11 +247,11 @@ def append_error_result(results, case, ms, scale, code, extra_metrics=None):
     results["results"].append(row)
 
 
-def run_quantize_benchmark(args, results, bsz_list, make_case, quantize, extra_metrics=None):
+def run_quantize_benchmark(args, results, kernel, bsz_list, make_case, quantize, extra_metrics=None):
     for bsz in bsz_list:
         case = make_case(bsz)
         ms, (scale, code) = benchmark_call(lambda: quantize(case), args)
-        append_error_result(results, case, ms, scale, code, extra_metrics)
+        append_error_result(results, kernel, case, ms, scale, code, extra_metrics)
     return results
 
 
@@ -208,11 +262,13 @@ def run_mse_benchmark(case, args, sm_count):
         sm_count,
         lower_bound=case.lower_bound,
         upper_bound=case.upper_bound,
+        scale_layout=case.scale_layout,
     )
 
     return run_quantize_benchmark(
         args,
         results,
+        case,
         BSZ_LIST,
         lambda bsz: make_base_case(args, bsz, fp8_max=case.fp8_max),
         lambda bench_case: case.quantize(
@@ -221,6 +277,7 @@ def run_mse_benchmark(case, args, sm_count):
             BLOCK_SIZE,
             case.lower_bound,
             case.upper_bound,
+            is_swizzle=case.scale_layout == "swizzled",
         ),
     )
 
@@ -245,11 +302,13 @@ def run_weighted_benchmark(case, args, sm_count):
         lower_bound=case.lower_bound,
         upper_bound=case.upper_bound,
         imp=args.imp,
+        scale_layout=case.scale_layout,
     )
 
     return run_quantize_benchmark(
         args,
         results,
+        case,
         BSZ_LIST,
         lambda bsz: make_weighted_case(args, bsz, fp8_max=case.fp8_max),
         lambda bench_case: case.quantize(
@@ -259,6 +318,7 @@ def run_weighted_benchmark(case, args, sm_count):
             BLOCK_SIZE,
             case.lower_bound,
             case.upper_bound,
+            is_swizzle=case.scale_layout == "swizzled",
         ),
         weighted_metrics,
     )
@@ -271,11 +331,13 @@ def run_absmax_benchmark(case, args, sm_count):
         sm_count,
         block_size=BLOCK_SIZE,
         fp8_max=args.fp8_max,
+        scale_layout=case.scale_layout,
     )
 
     return run_quantize_benchmark(
         args,
         results,
+        case,
         BSZ_LIST,
         lambda bsz: make_base_case(args, bsz, fp8_max=args.fp8_max),
         lambda bench_case: case.quantize(
@@ -289,21 +351,16 @@ def run_absmax_benchmark(case, args, sm_count):
 def run_vllm_benchmark(case, args, sm_count):
     from vllm._custom_ops import scaled_fp4_quant
 
-    results = make_results(case.result_name, args, sm_count)
+    results = make_results(case.result_name, args, sm_count, scale_layout=case.scale_layout)
 
     def quantize(case):
         code, scale = scaled_fp4_quant(case["weight"], case["global_scale_inv"])
-        scale = unswizzle_vllm_fp4_scale(
-            scale,
-            m=case["weight"].shape[0],
-            n=case["weight"].shape[1],
-            block_size=BLOCK_SIZE,
-        )
         return scale, code
 
     return run_quantize_benchmark(
         args,
         results,
+        case,
         BSZ_LIST,
         lambda bsz: make_base_case(args, bsz, fp8_max=case.fp8_max),
         quantize,

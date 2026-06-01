@@ -9,6 +9,8 @@ import triton
 import triton.language as tl
 from triton.language.extra import libdevice
 
+from kernel_vllm import round_up, vllm_swizzled_scale_offsets
+
 BLOCK_SIZE = 16
 LOWER_BOUND = -3
 UPPER_BOUND = 7
@@ -153,7 +155,7 @@ def _pack_final_code_16_cols(
 
 @triton.autotune(
     configs=SCALESWEEP_CONFIGS,
-    key=["NUM_BLOCKS", "LOWER_BOUND", "NUM_CANDIDATES"],
+    key=["NUM_BLOCKS", "LOWER_BOUND", "NUM_CANDIDATES", "BLOCKS_PER_OUT", "K_PAD", "IS_SWIZZLE_SCALE"],
 )
 @triton.jit
 def scalesweep_quantize_kernel(
@@ -162,8 +164,11 @@ def scalesweep_quantize_kernel(
     code_i32_ptr,
     global_scale_inv_ptr,
     NUM_BLOCKS: tl.constexpr,
+    BLOCKS_PER_OUT: tl.constexpr,
     LOWER_BOUND: tl.constexpr,
     NUM_CANDIDATES: tl.constexpr,
+    IS_SWIZZLE_SCALE: tl.constexpr,
+    K_PAD: tl.constexpr,
     BLOCKS_PER_PROGRAM: tl.constexpr,
     NUM_STAGES: tl.constexpr,
 ):
@@ -226,11 +231,14 @@ def scalesweep_quantize_kernel(
         best_mse = tl.where(better, mse_i, best_mse)
         best_scale_fp8 = tl.where(better, scale_fp8, best_scale_fp8)
 
-    tl.store(
-        scale_ptr + block_offsets,
-        best_scale_fp8,
-        mask=block_mask,
-    )
+    scale_offsets = block_offsets
+    if IS_SWIZZLE_SCALE:
+        scale_offsets = vllm_swizzled_scale_offsets(
+            block_offsets,
+            BLOCKS_PER_OUT,
+            K_PAD,
+        )
+    tl.store(scale_ptr + scale_offsets, best_scale_fp8, mask=block_mask)
 
     best_scale_inv = 1.0 / best_scale_fp8.to(tl.float32)
 
@@ -262,6 +270,7 @@ def scalesweep_quantize(
     block_size,
     lower_bound,
     upper_bound,
+    is_swizzle=False,
 ):
     if block_size != 16:
         raise ValueError("optimized kernel is specialized for block_size == 16")
@@ -269,9 +278,14 @@ def scalesweep_quantize(
         raise ValueError("weight.numel() must be divisible by 16")
 
     num_blocks = weight.numel() // 16
+    blocks_per_out = weight.shape[-1] // 16
+
+    scale_numel = num_blocks
+    if is_swizzle:
+        scale_numel = round_up(weight.shape[0], 128) * round_up(blocks_per_out, 4)
 
     scale = torch.empty(
-        num_blocks,
+        scale_numel,
         device=weight.device,
         dtype=torch.float8_e4m3fn,
     )
@@ -292,13 +306,18 @@ def scalesweep_quantize(
         code_i32,
         global_scale_inv,
         num_blocks,
+        BLOCKS_PER_OUT=blocks_per_out,
         LOWER_BOUND=lower_bound,
         NUM_CANDIDATES=upper_bound - lower_bound + 1,
+        IS_SWIZZLE_SCALE=is_swizzle,
+        K_PAD=round_up(blocks_per_out, 4),
     )
 
     code = code_i32.view(torch.uint8)
 
     scale_shape = (*weight.shape[:-1], weight.shape[-1] // 16)
     code_shape = (*weight.shape[:-1], weight.shape[-1] // 2)
+    if is_swizzle:
+        return scale.view(round_up(weight.shape[0], 128), round_up(blocks_per_out, 4)), code.view(code_shape)
 
     return scale.view(scale_shape), code.view(code_shape)

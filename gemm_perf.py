@@ -19,42 +19,51 @@ def make_input(m: int, k: int) -> torch.Tensor:
     return torch.randn((m, k), device=DEVICE, dtype=DTYPE).contiguous()
 
 
-def make_input_channel_square_norm(x: torch.Tensor) -> torch.Tensor:
+def make_channel_square_norm(x: torch.Tensor) -> torch.Tensor:
     return torch.sum(x.float() * x.float(), dim=0, keepdim=True).contiguous()
 
 
-def quantize_case(case, weight, imp, global_scale_inv):
+def quantize_case(case, tensor, imp, global_scale_inv):
     if case.kind == "weighted":
         return case.quantize(
-            weight,
+            tensor,
             imp,
             global_scale_inv,
             BLOCK_SIZE,
             case.lower_bound,
             case.upper_bound,
+            is_swizzle=case.scale_layout == "swizzled",
         )
     if case.kind == "mse":
         return case.quantize(
-            weight,
+            tensor,
             global_scale_inv,
             BLOCK_SIZE,
             case.lower_bound,
             case.upper_bound,
+            is_swizzle=case.scale_layout == "swizzled",
         )
     if case.kind == "absmax":
-        return case.quantize(weight, global_scale_inv, BLOCK_SIZE)
+        return case.quantize(tensor, global_scale_inv, BLOCK_SIZE)
     if case.kind == "vllm":
         from vllm._custom_ops import scaled_fp4_quant
 
-        code, scale = scaled_fp4_quant(weight, global_scale_inv)
-        scale = unswizzle_vllm_fp4_scale(
-            scale,
-            m=weight.shape[0],
-            n=weight.shape[1],
-            block_size=BLOCK_SIZE,
-        )
+        code, scale = scaled_fp4_quant(tensor, global_scale_inv)
         return scale, code
     raise ValueError(f"unknown kernel kind for {case.name}: {case.kind}")
+
+
+def quantize_dequantize(case, tensor, imp):
+    global_scale, global_scale_inv = get_nvfp4_global_scale(tensor, FP8_MAX=case.fp8_max)
+    scale, code = quantize_case(case, tensor, imp, global_scale_inv)
+    if case.scale_layout == "swizzled":
+        scale = unswizzle_vllm_fp4_scale(
+            scale,
+            m=tensor.shape[0],
+            n=tensor.shape[1],
+            block_size=BLOCK_SIZE,
+        )
+    return dequantize("base", code, scale, global_scale).to(DTYPE)
 
 
 def main() -> None:
@@ -67,10 +76,10 @@ def main() -> None:
 
     x = make_input(DIM, DIM)
     weight = make_w(DIM, DIM)
-    imp = make_input_channel_square_norm(x)
+    weight_imp = make_channel_square_norm(x)
+    x_imp = make_channel_square_norm(weight)
 
     ref = F.linear(x, weight)
-    global_scale, global_scale_inv = get_nvfp4_global_scale(weight)
 
     lines = ["kernel,mse,max_abs_err"]
 
@@ -81,16 +90,14 @@ def main() -> None:
             continue
 
         try:
-            scale, code = quantize_case(case, weight, imp, global_scale_inv)
-            reconstructed = dequantize("base", code, scale, global_scale).to(DTYPE)
-            del scale, code
-
-            pred = F.linear(x, reconstructed)
+            reconstructed_x = quantize_dequantize(case, x, x_imp)
+            reconstructed_weight = quantize_dequantize(case, weight, weight_imp)
+            pred = F.linear(reconstructed_x, reconstructed_weight)
             mse, max_abs_err = error_stats(ref, pred)
 
             lines.append(f"{case.name},{mse:.4f},{max_abs_err:.4f}")
 
-            del reconstructed, pred
+            del reconstructed_x, reconstructed_weight, pred
             torch.cuda.empty_cache()
         except Exception as exc:
             lines.append(f"{case.name},ERROR,{type(exc).__name__}: {exc}")
