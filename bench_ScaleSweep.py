@@ -6,10 +6,10 @@ from helper import (
     check_sm100,
     dequantize,
     error_stats,
-    get_nvfp4_global_scales,
+    get_nvfp4_global_scale,
     make_w,
 )
-from bench16_one import (
+from bench_ScaleSweep_MSE import (
     SCALESWEEP_CONFIGS,
     _load_normalized_16_cols,
     _max_abs_16,
@@ -251,8 +251,11 @@ def scalesweep_quantize_kernel(
         v12, v13, v14, v15,
     )
 
-    base_fp8 = (abs_max * (1.0 / 6.0)).to(tl.float8e4nv)
-    base_raw = base_fp8.to(tl.uint8, bitcast=True).to(tl.int32)
+    base_scale = abs_max * (1.0 / 6.0)
+    base_fp8 = base_scale.to(tl.float8e4nv)
+    base_raw = base_fp8.to(tl.uint8, bitcast=True).to(tl.int32) - (
+        base_fp8.to(tl.float32) > base_scale
+    ).to(tl.int32)
 
     for i in tl.static_range(0, NUM_CANDIDATES):
         raw_i = tl.minimum(
@@ -404,7 +407,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", type=int, default=8192)
     parser.add_argument("--imp", type=str, choices=["ones", "ramp", "random"], default="ones")
-    parser.add_argument("--output", type=Path, default=Path("benchi_one_results.json"))
+    parser.add_argument("--output", type=Path, default=Path("bench_ScaleSweep_results.json"))
     return parser.parse_args()
 
 
@@ -425,7 +428,7 @@ def main():
     for bsz in bsz_list:
         weight = make_w(bsz, args.dim)
         imp = make_imp(args.imp, weight.shape[1], weight.device)
-        global_scale, global_scale_inv = get_nvfp4_global_scales(weight, FP8_MAX=256)
+        global_scale, global_scale_inv = get_nvfp4_global_scale(weight, FP8_MAX=256)
 
         fn = lambda: scalesweep_quantize(
             weight,

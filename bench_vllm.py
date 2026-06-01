@@ -9,7 +9,7 @@ import triton.testing as tts
 from helper import (
     check_sm100,
     make_w,
-    get_nvfp4_global_scales,
+    get_nvfp4_global_scale,
     error_stats,
     dequantize,
 )
@@ -56,7 +56,7 @@ def main():
 
     for bsz in [1, 8, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]:
         W = make_w(bsz, args.dim)
-        global_scale, global_scale_inv = get_nvfp4_global_scales(W)
+        global_scale, global_scale_inv = get_nvfp4_global_scale(W)
 
         fn = lambda: scaled_fp4_quant(W, global_scale_inv)
         ms = tts.do_bench(fn, warmup=10, rep=100)
