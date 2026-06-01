@@ -10,6 +10,7 @@ import triton.testing as tts
 from helper import (
     dequantize,
     error_stats,
+    get_environment_info,
     get_nvfp4_global_scale,
     make_imp,
     make_w,
@@ -111,6 +112,14 @@ KERNEL_CASES = (
         fp8_max=448.0,
     ),
     KernelCase(
+        name="AbsMax_simulate_fp4_swizzled",
+        result_name="triton.AbsMax_simulate_fp4_swizzled",
+        kind="absmax",
+        quantize=absmax_quantize_simulate_fp4,
+        fp8_max=448.0,
+        scale_layout="swizzled",
+    ),
+    KernelCase(
         name="ScaleSweep_MSE_simulate_fp4",
         result_name="triton.ScaleSweep_MSE_simulate_fp4",
         kind="mse",
@@ -200,6 +209,8 @@ def make_results(name, args, sm_count, **metadata):
         "name": name,
         "sm_count": sm_count,
         "dim": args.dim,
+        "weight_distribution": "Laplace(loc=0, scale=1)",
+        "environment": get_environment_info(),
         "results": [],
     }
     results.update(metadata)
@@ -344,6 +355,7 @@ def run_absmax_benchmark(case, args, sm_count):
             bench_case["weight"],
             bench_case["global_scale_inv"],
             BLOCK_SIZE,
+            is_swizzle=case.scale_layout == "swizzled",
         ),
     )
 

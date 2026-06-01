@@ -8,6 +8,8 @@ import torch
 import triton
 import triton.language as tl
 
+from kernel_vllm import swizzle_vllm_fp4_scale
+
 BLOCK_SIZE = 16
 
 
@@ -79,7 +81,7 @@ def absmax_quantize_simulate_fp4_kernel(
     tl.store(code_i32_ptr + code_i32_offsets + 1, hi.to(tl.int32), mask=block_mask)
 
 
-def absmax_quantize_simulate_fp4(weight, global_scale_inv, block_size):
+def absmax_quantize_simulate_fp4(weight, global_scale_inv, block_size, is_swizzle=False):
     if block_size != 16:
         raise ValueError("optimized kernel is specialized for block_size == 16")
     if weight.numel() % 16 != 0:
@@ -112,4 +114,13 @@ def absmax_quantize_simulate_fp4(weight, global_scale_inv, block_size):
     scale_shape = (*weight.shape[:-1], weight.shape[-1] // 16)
     code_shape = (*weight.shape[:-1], weight.shape[-1] // 2)
 
-    return scale.view(scale_shape), code.view(code_shape)
+    scale = scale.view(scale_shape)
+    if is_swizzle:
+        scale = swizzle_vllm_fp4_scale(
+            scale,
+            m=weight.shape[0],
+            n=weight.shape[1],
+            block_size=block_size,
+        )
+
+    return scale, code.view(code_shape)

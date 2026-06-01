@@ -1,3 +1,6 @@
+import importlib.metadata
+import subprocess
+
 import torch
 
 SEED = 0
@@ -15,10 +18,73 @@ def check_sm100():
     assert major >= 10, f"need SM >= 100, got sm_{major}{minor}"
 
 
+def _driver_version_from_torch():
+    get_driver_version = getattr(torch._C, "_cuda_getDriverVersion", None)
+    if get_driver_version is None:
+        return None
+    version = get_driver_version()
+    major = version // 1000
+    minor = (version % 1000) // 10
+    return f"{major}.{minor}"
+
+
+def _driver_version_from_nvidia_smi():
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    versions = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    return versions[0] if versions else None
+
+
+def _package_version(name):
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def get_environment_info():
+    info = {
+        "torch": torch.__version__,
+        "vllm": _package_version("vllm"),
+        "cuda": torch.version.cuda,
+        "gpu_driver": _driver_version_from_torch() or _driver_version_from_nvidia_smi(),
+        "gpu": None,
+    }
+    if torch.cuda.is_available():
+        props = torch.cuda.get_device_properties("cuda")
+        major, minor = torch.cuda.get_device_capability()
+        info["gpu"] = {
+            "name": props.name,
+            "sm": major * 10 + minor,
+            "capability": f"{major}.{minor}",
+            "sm_count": props.multi_processor_count,
+            "total_memory_bytes": props.total_memory,
+        }
+    return info
+
+
+def make_laplace(shape, *, seed=SEED, device=DEVICE, dtype=DTYPE, loc=0.0, scale=1.0):
+    generator = torch.Generator(device=device)
+    generator.manual_seed(seed)
+    p = torch.rand(shape, device=device, dtype=torch.float32, generator=generator)
+    p = p.clamp_(torch.finfo(torch.float32).eps, 1.0 - torch.finfo(torch.float32).eps)
+    x = torch.where(
+        p < 0.5,
+        loc + scale * torch.log(2.0 * p),
+        loc - scale * torch.log(2.0 * (1.0 - p)),
+    )
+    return x.to(dtype).contiguous()
+
+
 def make_w(M=4096, K=4096):
-    torch.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
-    return torch.randn((M, K), device=DEVICE, dtype=DTYPE).contiguous()
+    return make_laplace((M, K), seed=SEED)
 
 
 def make_imp(kind, dim, device):
