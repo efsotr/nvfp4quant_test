@@ -39,8 +39,7 @@ from kernel_ScaleSweep_no_convert import (
 from kernel_vllm import unswizzle_vllm_fp4_scale
 
 
-BSZ_LIST = [1, 8, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]
-WEIGHTED_BSZ_LIST = [1, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]
+BSZ_LIST = [1, 8, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
 BENCHMARKS = [
     "ScaleSweep",
     "ScaleSweep_MSE",
@@ -195,7 +194,7 @@ def run_weighted_benchmark(args, sm_count, *, no_convert):
     return run_quantize_benchmark(
         args,
         results,
-        WEIGHTED_BSZ_LIST,
+        BSZ_LIST,
         lambda bsz: make_weighted_case(args, bsz),
         lambda case: quantize(
             case["weight"],
