@@ -1,4 +1,6 @@
 import argparse
+import json
+from pathlib import Path
 
 from helper import (
     check_sm100,
@@ -68,8 +70,8 @@ def _fp32x16_to_e2m1_u32x2(
 
 
 @triton.jit
-def _fp32_pair_to_e2m1_roundtrip_se(x0, x1):
-    se = tl.inline_asm_elementwise(
+def _fp32_pair_e2m1_roundtrip_squared_error(x0, x1):
+    squared_error = tl.inline_asm_elementwise(
         asm=r"""
         {
           .reg .b8  b;
@@ -100,30 +102,30 @@ def _fp32_pair_to_e2m1_roundtrip_se(x0, x1):
         is_pure=True,
         pack=1,
     )
-    return se
+    return squared_error
 
 
 @triton.jit
-def _fp32x16_to_e2m1_roundtrip_se(
+def _fp32x16_e2m1_roundtrip_squared_error(
     x0, x1, x2, x3,
     x4, x5, x6, x7,
     x8, x9, x10, x11,
     x12, x13, x14, x15,
 ):
-    s01 = _fp32_pair_to_e2m1_roundtrip_se(x0, x1)
-    s23 = _fp32_pair_to_e2m1_roundtrip_se(x2, x3)
-    s45 = _fp32_pair_to_e2m1_roundtrip_se(x4, x5)
-    s67 = _fp32_pair_to_e2m1_roundtrip_se(x6, x7)
-    s89 = _fp32_pair_to_e2m1_roundtrip_se(x8, x9)
-    sAB = _fp32_pair_to_e2m1_roundtrip_se(x10, x11)
-    sCD = _fp32_pair_to_e2m1_roundtrip_se(x12, x13)
-    sEF = _fp32_pair_to_e2m1_roundtrip_se(x14, x15)
+    s01 = _fp32_pair_e2m1_roundtrip_squared_error(x0, x1)
+    s23 = _fp32_pair_e2m1_roundtrip_squared_error(x2, x3)
+    s45 = _fp32_pair_e2m1_roundtrip_squared_error(x4, x5)
+    s67 = _fp32_pair_e2m1_roundtrip_squared_error(x6, x7)
+    s89 = _fp32_pair_e2m1_roundtrip_squared_error(x8, x9)
+    sAB = _fp32_pair_e2m1_roundtrip_squared_error(x10, x11)
+    sCD = _fp32_pair_e2m1_roundtrip_squared_error(x12, x13)
+    sEF = _fp32_pair_e2m1_roundtrip_squared_error(x14, x15)
 
     return ((s01 + s23) + (s45 + s67)) + ((s89 + sAB) + (sCD + sEF))
 
 
 @triton.jit
-def _mse_after_e2m1_roundtrip_16_cols_direct(
+def _squared_error_16_cols_after_e2m1_roundtrip(
     v0, v1, v2, v3,
     v4, v5, v6, v7,
     v8, v9, v10, v11,
@@ -148,13 +150,13 @@ def _mse_after_e2m1_roundtrip_16_cols_direct(
     x14 = v14 * inv_scale
     x15 = v15 * inv_scale
 
-    se = _fp32x16_to_e2m1_roundtrip_se(
+    squared_error = _fp32x16_e2m1_roundtrip_squared_error(
         x0, x1, x2, x3,
         x4, x5, x6, x7,
         x8, x9, x10, x11,
         x12, x13, x14, x15,
     )
-    return se * (scale * scale)
+    return squared_error * (scale * scale)
 
 
 @triton.jit
@@ -218,7 +220,7 @@ def _max_abs_16(
 
 
 @triton.jit
-def _load_16_cols_2d_seperate(
+def _load_normalized_16_cols(
     ptr,
     block_offsets,
     block_mask,
@@ -306,7 +308,7 @@ def scalesweep_quantize_kernel(
         v4, v5, v6, v7,
         v8, v9, v10, v11,
         v12, v13, v14, v15,
-    ) = _load_16_cols_2d_seperate(
+    ) = _load_normalized_16_cols(
         weight_ptr,
         block_offsets,
         block_mask,
@@ -333,7 +335,7 @@ def scalesweep_quantize_kernel(
         scale_i = scale_fp8.to(tl.float32)
         inv_scale_i = 1.0 / scale_i
 
-        mse_i = _mse_after_e2m1_roundtrip_16_cols_direct(
+        mse_i = _squared_error_16_cols_after_e2m1_roundtrip(
             v0, v1, v2, v3,
             v4, v5, v6, v7,
             v8, v9, v10, v11,
@@ -432,15 +434,22 @@ import triton.testing as tts
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", type=int, default=8192)
+    parser.add_argument("--output", type=Path, default=Path("bench16_one_results.json"))
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    print(args)
 
     check_sm100()
-    print(f"[triton.ScaleSweep [{LOWER_BOUND}, {UPPER_BOUND}]] [SM {sm_count}]")
+    results = {
+        "name": "triton.ScaleSweep",
+        "lower_bound": LOWER_BOUND,
+        "upper_bound": UPPER_BOUND,
+        "sm_count": sm_count,
+        "dim": args.dim,
+        "results": [],
+    }
 
     for bsz in bsz_list:
         weight = make_w(bsz, args.dim)
@@ -456,15 +465,22 @@ def main():
         ms = tts.do_bench(fn, warmup=10, rep=100)
         scale, code = fn()
 
-        reconstructed = dequantize("base", code, scale, global_scale, high_first=False)
+        reconstructed = dequantize("base", code, scale, global_scale)
         mse, max_abs_error = error_stats(weight, reconstructed)
 
-        print(f"bsz = {bsz}, dim = {weight.shape[1]}")
-        print(f"latency_ms    = {ms:.6f}")
-        print(f"mse           = {mse:.8e}")
-        print(f"max_abs_error = {max_abs_error:.8e}")
-        print(flush=True)
-    print("-" * 25)
+        results["results"].append(
+            {
+                "bsz": bsz,
+                "dim": weight.shape[1],
+                "latency_ms": ms,
+                "mse": mse,
+                "max_abs_error": max_abs_error,
+            }
+        )
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(results, indent=2) + "\n")
+    print(f"saved results to {args.output}")
 
 if __name__ == "__main__":
     main()

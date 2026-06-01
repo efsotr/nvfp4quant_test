@@ -34,13 +34,6 @@ def error_stats(ref, pred):
     return mse, max_abs_error
 
 
-def print_result(name, ms, mse, max_abs_error):
-    print(f"[{name}]")
-    print(f"latency_ms    = {ms:.6f}")
-    print(f"mse           = {mse:.8e}")
-    print(f"max_abs_error = {max_abs_error:.8e}")
-
-
 _FP4_E2M1_LUT = None
 
 
@@ -58,22 +51,18 @@ def fp4_e2m1_lut(device):
     return _FP4_E2M1_LUT
 
 
-def unpack_fp4_e2m1(packed, high_first=False):
+def unpack_fp4_e2m1(packed):
     assert packed.dtype == torch.uint8
 
     lut = fp4_e2m1_lut(packed.device)
     low = packed & 0x0F
     high = (packed >> 4) & 0x0F
-
-    if high_first:
-        out = torch.stack((lut[high.long()], lut[low.long()]), dim=-1)
-    else:
-        out = torch.stack((lut[low.long()], lut[high.long()]), dim=-1)
+    out = torch.stack((lut[low.long()], lut[high.long()]), dim=-1)
 
     return out.reshape(packed.shape[0], packed.shape[1] * 2)
 
-def dequantize_base(q, scale_fp8, global_scale, high_first=False):
-    values = unpack_fp4_e2m1(q, high_first=high_first)
+def dequantize_base(q, scale_fp8, global_scale):
+    values = unpack_fp4_e2m1(q)
     scales = scale_fp8.to(torch.float32).repeat_interleave(16, dim=1)
     return values * scales * global_scale.float()
 
