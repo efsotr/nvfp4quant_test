@@ -47,6 +47,13 @@ def error_stats(ref, pred):
     return mse, max_abs_error
 
 
+def weighted_error_stats(weight, reconstructed, imp):
+    err = reconstructed.float() - weight.float()
+    weighted_mse = torch.mean(err * err * imp.float()).item()
+    max_abs_error = torch.max(torch.abs(err)).item()
+    return weighted_mse, max_abs_error
+
+
 _FP4_E2M1_LUT = None
 
 
