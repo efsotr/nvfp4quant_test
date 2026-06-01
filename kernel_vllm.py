@@ -13,7 +13,7 @@ def vllm_swizzled_scale_offsets(
     K_PAD: tl.constexpr,
 ):
     row = block_offsets // BLOCKS_PER_OUT
-    col = block_offsets - row * BLOCKS_PER_OUT
+    col = block_offsets % BLOCKS_PER_OUT
 
     major_m = row >> 7
     row_in_tile = row & 127
