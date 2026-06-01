@@ -7,6 +7,7 @@ from helper import (
     dequantize,
     error_stats,
     get_nvfp4_global_scale,
+    make_imp,
     make_w,
 )
 from bench_ScaleSweep_MSE import (
@@ -316,18 +317,6 @@ def scalesweep_quantize_kernel(
         hi.to(tl.int32),
         mask=block_mask,
     )
-
-
-def make_imp(kind, dim, device):
-    if kind == "ones":
-        return torch.ones((1, dim), device=device, dtype=torch.float32)
-    if kind == "ramp":
-        return torch.linspace(0.25, 2.0, dim, device=device, dtype=torch.float32).view(1, dim)
-    if kind == "random":
-        g = torch.Generator(device=device)
-        g.manual_seed(123)
-        return (0.25 + 1.75 * torch.rand((1, dim), device=device, dtype=torch.float32, generator=g))
-    raise NotImplementedError(f"unsupported --imp {kind}")
 
 
 def weighted_error_stats(weight, reconstructed, imp):

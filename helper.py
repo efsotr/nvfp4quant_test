@@ -21,6 +21,18 @@ def make_w(M=4096, K=4096):
     return torch.randn((M, K), device=DEVICE, dtype=DTYPE).contiguous()
 
 
+def make_imp(kind, dim, device):
+    if kind == "ones":
+        return torch.ones((1, dim), device=device, dtype=torch.float32)
+    if kind == "ramp":
+        return torch.linspace(0.25, 2.0, dim, device=device, dtype=torch.float32).view(1, dim)
+    if kind == "random":
+        g = torch.Generator(device=device)
+        g.manual_seed(123)
+        return 0.25 + 1.75 * torch.rand((1, dim), device=device, dtype=torch.float32, generator=g)
+    raise NotImplementedError(f"unsupported --imp {kind}")
+
+
 def get_nvfp4_global_scale(x, FP8_MAX=FP8_E4M3_MAX_NVFP4):
     amax = x.abs().max().float()
     global_scale = amax / (FP4_E2M1_MAX * FP8_MAX)

@@ -6,11 +6,11 @@ from helper import (
     dequantize,
     error_stats,
     get_nvfp4_global_scale,
+    make_imp,
     make_w,
 )
 from bench_ScaleSweep import (
     _load_shared_importance_16_cols,
-    make_imp,
     weighted_error_stats,
 )
 from bench_ScaleSweep_MSE_no_convert import (
