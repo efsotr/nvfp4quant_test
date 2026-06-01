@@ -25,14 +25,7 @@ from helper16 import (
 )
 
 LOAD_FN = None
-if args.load == "default":
-    LOAD_FN = _load_16_cols_2d
-elif args.load == "sep":
-    LOAD_FN = _load_16_cols_2d_seperate
-elif args.load == "trans":
-    LOAD_FN = _load_16_cols_2d_trans
-else:
-    raise NotImplementedError(f"unsupported --load {args.load}")
+LOAD_FN = _load_16_cols_2d_seperate
 
 import torch
 sm_count = torch.cuda.get_device_properties("cuda").multi_processor_count
@@ -89,33 +82,6 @@ def _load_imp_16_cols_global(
         iw4, iw5, iw6, iw7,
         iw8, iw9, iw10, iw11,
         iw12, iw13, iw14, iw15,
-    )
-
-
-@triton.jit
-def _load_imp_16_cols_global_trans(
-    imp_ptr,
-    block_offsets,
-    block_mask,
-    BLOCKS_PER_OUT: tl.constexpr,
-):
-    # imp: [1, d_in], contiguous.
-    # This version first loads a [BLOCKS_PER_PROGRAM, 16] imp tile.
-    # The transposed tile is then read as 16 vectors, matching v0..v15.
-    block_in_offsets = block_offsets % BLOCKS_PER_OUT
-    imp_base = block_in_offsets * 16
-    cols = tl.arange(0, 16)
-
-    offs = imp_base[:, None] + cols[None, :]
-    mask = block_mask[:, None]
-    iw = tl.load(imp_ptr + offs, mask=mask, other=0.0).to(tl.float32)
-    iwt = tl.trans(iw)
-
-    return (
-        iwt[0], iwt[1], iwt[2], iwt[3],
-        iwt[4], iwt[5], iwt[6], iwt[7],
-        iwt[8], iwt[9], iwt[10], iwt[11],
-        iwt[12], iwt[13], iwt[14], iwt[15],
     )
 
 
@@ -318,13 +284,7 @@ def _weighted_mse_after_e2m1_roundtrip_16_cols_direct(
     return se * (scale * scale)
 
 
-MSE_FN = None
-if args.mse == "default":
-    MSE_FN = _weighted_mse_after_e2m1_roundtrip_16_cols
-elif args.mse == "direct":
-    MSE_FN = _weighted_mse_after_e2m1_roundtrip_16_cols_direct
-else:
-    raise NotImplementedError(f"unsupported --mse {args.mse}")
+MSE_FN = _weighted_mse_after_e2m1_roundtrip_16_cols_direct
 
 
 @triton.autotune(

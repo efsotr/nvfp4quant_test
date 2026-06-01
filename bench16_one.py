@@ -12,35 +12,16 @@ from helper import (
     error_stats,
     get_nvfp4_global_scales,
     make_w,
-    time_cuda,
 )
 from helper16 import (
     _load_16_cols_2d_seperate,
-    _load_16_cols_2d,
-    _load_16_cols_2d_trans,
     _max_abs_16,
-    _mse_after_e2m1_roundtrip_16_cols,
     _mse_after_e2m1_roundtrip_16_cols_direct,
     _pack_final_code_16_cols,
 )
 
-LOAD_FN = None
-if args.load == "default":
-    LOAD_FN = _load_16_cols_2d
-elif args.load == "sep":
-    LOAD_FN = _load_16_cols_2d_seperate
-elif args.load == "trans":
-    LOAD_FN = _load_16_cols_2d_trans
-else:
-    raise NotImplementedError(f"unsupported --load {args.load}")
-
-MSE_FN = None
-if args.mse == "default":
-    MSE_FN = _mse_after_e2m1_roundtrip_16_cols
-elif args.mse == "direct":
-    MSE_FN = _mse_after_e2m1_roundtrip_16_cols_direct
-else:
-    raise NotImplementedError(f"unsupported --mse {args.mse}")
+LOAD_FN = _load_16_cols_2d_seperate
+MSE_FN = _mse_after_e2m1_roundtrip_16_cols_direct
 
 import torch
 sm_count = torch.cuda.get_device_properties("cuda").multi_processor_count
