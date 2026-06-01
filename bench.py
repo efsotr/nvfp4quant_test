@@ -1,12 +1,13 @@
 import argparse
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import torch
 import triton.testing as tts
 
 from helper import (
-    check_sm100,
     dequantize,
     error_stats,
     get_nvfp4_global_scale,
@@ -40,19 +41,77 @@ from kernel_vllm import unswizzle_vllm_fp4_scale
 
 
 BSZ_LIST = [1, 8, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
-BENCHMARKS = [
-    "ScaleSweep",
-    "ScaleSweep_MSE",
-    "ScaleSweep_no_convert",
-    "ScaleSweep_MSE_no_convert",
-    "AbsMax_no_convert",
-    "vllm",
-]
+
+
+@dataclass(frozen=True)
+class KernelCase:
+    name: str
+    result_name: str
+    kind: str
+    quantize: Callable | None = None
+    lower_bound: int | None = None
+    upper_bound: int | None = None
+    fp8_max: float = 256.0
+    min_sm: int | None = None
+
+
+KERNEL_CASES = (
+    KernelCase(
+        name="ScaleSweep",
+        result_name="triton.ScaleSweep",
+        kind="weighted",
+        quantize=scalesweep_quantize,
+        lower_bound=SCALESWEEP_LOWER_BOUND,
+        upper_bound=SCALESWEEP_UPPER_BOUND,
+        min_sm=100,
+    ),
+    KernelCase(
+        name="ScaleSweep_MSE",
+        result_name="triton.ScaleSweep_MSE",
+        kind="mse",
+        quantize=mse_scalesweep_quantize,
+        lower_bound=SCALESWEEP_MSE_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_UPPER_BOUND,
+        min_sm=100,
+    ),
+    KernelCase(
+        name="ScaleSweep_no_convert",
+        result_name="triton.ScaleSweep_no_convert",
+        kind="weighted",
+        quantize=scalesweep_no_convert_quantize,
+        lower_bound=SCALESWEEP_NO_CONVERT_LOWER_BOUND,
+        upper_bound=SCALESWEEP_NO_CONVERT_UPPER_BOUND,
+    ),
+    KernelCase(
+        name="ScaleSweep_MSE_no_convert",
+        result_name="triton.ScaleSweep_MSE_no_convert",
+        kind="mse",
+        quantize=mse_scalesweep_no_convert_quantize,
+        lower_bound=SCALESWEEP_MSE_NO_CONVERT_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_NO_CONVERT_UPPER_BOUND,
+    ),
+    KernelCase(
+        name="AbsMax_no_convert",
+        result_name="triton.AbsMax_no_convert",
+        kind="absmax",
+        quantize=absmax_quantize_no_convert,
+        fp8_max=448.0,
+    ),
+    KernelCase(
+        name="vllm",
+        result_name="triton.vllm",
+        kind="vllm",
+        fp8_max=448.0,
+        min_sm=100,
+    ),
+)
+KERNEL_CASES_BY_NAME = {case.name: case for case in KERNEL_CASES}
+BENCHMARKS = list(KERNEL_CASES_BY_NAME)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("benchmarks", nargs="*", choices=BENCHMARKS, default=BENCHMARKS)
+    parser.add_argument("benchmarks", nargs="*")
     parser.add_argument("--dim", type=int, default=8192)
     parser.add_argument("--imp", type=str, choices=["ones", "ramp", "random"], default="ones")
     parser.add_argument("--fp8-max", type=float, default=448.0)
@@ -60,7 +119,17 @@ def parse_args():
     parser.add_argument("--output-dir", type=Path, default=Path("result"))
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--rep", type=int, default=100)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.benchmarks:
+        args.benchmarks = BENCHMARKS
+    unknown_benchmarks = sorted(set(args.benchmarks) - set(BENCHMARKS))
+    if unknown_benchmarks:
+        parser.error(
+            "argument benchmarks: invalid choice(s): "
+            f"{', '.join(unknown_benchmarks)} "
+            f"(choose from {', '.join(BENCHMARKS)})"
+        )
+    return args
 
 
 def write_results(results, args):
@@ -68,6 +137,17 @@ def write_results(results, args):
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(results, indent=2) + "\n")
     print(f"saved results to {output}")
+
+
+def current_sm() -> int:
+    major, minor = torch.cuda.get_device_capability()
+    return major * 10 + minor
+
+
+def should_skip_kernel(kernel: KernelCase, sm: int) -> str | None:
+    if kernel.min_sm is not None and sm < kernel.min_sm:
+        return f"requires sm_{kernel.min_sm}, current device is sm_{sm}"
+    return None
 
 
 def benchmark_call(fn, args):
@@ -121,44 +201,32 @@ def run_quantize_benchmark(args, results, bsz_list, make_case, quantize, extra_m
     return results
 
 
-def run_mse_benchmark(args, sm_count, *, no_convert):
-    if no_convert:
-        name = "triton.ScaleSweep_MSE_no_convert"
-        quantize = mse_scalesweep_no_convert_quantize
-        lower_bound = SCALESWEEP_MSE_NO_CONVERT_LOWER_BOUND
-        upper_bound = SCALESWEEP_MSE_NO_CONVERT_UPPER_BOUND
-    else:
-        check_sm100()
-        name = "triton.ScaleSweep_MSE"
-        quantize = mse_scalesweep_quantize
-        lower_bound = SCALESWEEP_MSE_LOWER_BOUND
-        upper_bound = SCALESWEEP_MSE_UPPER_BOUND
-
+def run_mse_benchmark(case, args, sm_count):
     results = make_results(
-        name,
+        case.result_name,
         args,
         sm_count,
-        lower_bound=lower_bound,
-        upper_bound=upper_bound,
+        lower_bound=case.lower_bound,
+        upper_bound=case.upper_bound,
     )
 
     return run_quantize_benchmark(
         args,
         results,
         BSZ_LIST,
-        lambda bsz: make_base_case(args, bsz, fp8_max=256),
-        lambda case: quantize(
-            case["weight"],
-            case["global_scale_inv"],
+        lambda bsz: make_base_case(args, bsz, fp8_max=case.fp8_max),
+        lambda bench_case: case.quantize(
+            bench_case["weight"],
+            bench_case["global_scale_inv"],
             BLOCK_SIZE,
-            lower_bound,
-            upper_bound,
+            case.lower_bound,
+            case.upper_bound,
         ),
     )
 
 
-def make_weighted_case(args, bsz):
-    case = make_base_case(args, bsz, fp8_max=256)
+def make_weighted_case(args, bsz, *, fp8_max):
+    case = make_base_case(args, bsz, fp8_max=fp8_max)
     weight = case["weight"]
     case["imp"] = make_imp(args.imp, weight.shape[1], weight.device)
     return case
@@ -169,25 +237,13 @@ def weighted_metrics(case, reconstructed):
     return {"weighted_mse": weighted_mse}
 
 
-def run_weighted_benchmark(args, sm_count, *, no_convert):
-    if no_convert:
-        name = "triton.ScaleSweep_no_convert"
-        quantize = scalesweep_no_convert_quantize
-        lower_bound = SCALESWEEP_NO_CONVERT_LOWER_BOUND
-        upper_bound = SCALESWEEP_NO_CONVERT_UPPER_BOUND
-    else:
-        check_sm100()
-        name = "triton.ScaleSweep"
-        quantize = scalesweep_quantize
-        lower_bound = SCALESWEEP_LOWER_BOUND
-        upper_bound = SCALESWEEP_UPPER_BOUND
-
+def run_weighted_benchmark(case, args, sm_count):
     results = make_results(
-        name,
+        case.result_name,
         args,
         sm_count,
-        lower_bound=lower_bound,
-        upper_bound=upper_bound,
+        lower_bound=case.lower_bound,
+        upper_bound=case.upper_bound,
         imp=args.imp,
     )
 
@@ -195,22 +251,22 @@ def run_weighted_benchmark(args, sm_count, *, no_convert):
         args,
         results,
         BSZ_LIST,
-        lambda bsz: make_weighted_case(args, bsz),
-        lambda case: quantize(
-            case["weight"],
-            case["imp"],
-            case["global_scale_inv"],
+        lambda bsz: make_weighted_case(args, bsz, fp8_max=case.fp8_max),
+        lambda bench_case: case.quantize(
+            bench_case["weight"],
+            bench_case["imp"],
+            bench_case["global_scale_inv"],
             BLOCK_SIZE,
-            lower_bound,
-            upper_bound,
+            case.lower_bound,
+            case.upper_bound,
         ),
         weighted_metrics,
     )
 
 
-def run_absmax_benchmark(args, sm_count):
+def run_absmax_benchmark(case, args, sm_count):
     results = make_results(
-        "triton.AbsMax_no_convert",
+        case.result_name,
         args,
         sm_count,
         block_size=BLOCK_SIZE,
@@ -222,19 +278,18 @@ def run_absmax_benchmark(args, sm_count):
         results,
         BSZ_LIST,
         lambda bsz: make_base_case(args, bsz, fp8_max=args.fp8_max),
-        lambda case: absmax_quantize_no_convert(
-            case["weight"],
-            case["global_scale_inv"],
+        lambda bench_case: case.quantize(
+            bench_case["weight"],
+            bench_case["global_scale_inv"],
             BLOCK_SIZE,
         ),
     )
 
 
-def run_vllm_benchmark(args, sm_count):
+def run_vllm_benchmark(case, args, sm_count):
     from vllm._custom_ops import scaled_fp4_quant
 
-    check_sm100()
-    results = make_results("triton.vllm", args, sm_count)
+    results = make_results(case.result_name, args, sm_count)
 
     def quantize(case):
         code, scale = scaled_fp4_quant(case["weight"], case["global_scale_inv"])
@@ -250,25 +305,26 @@ def run_vllm_benchmark(args, sm_count):
         args,
         results,
         BSZ_LIST,
-        lambda bsz: make_base_case(args, bsz, fp8_max=448.0),
+        lambda bsz: make_base_case(args, bsz, fp8_max=case.fp8_max),
         quantize,
     )
 
 
-def run_benchmark(name, args, sm_count):
-    if name == "ScaleSweep":
-        return run_weighted_benchmark(args, sm_count, no_convert=False)
-    if name == "ScaleSweep_MSE":
-        return run_mse_benchmark(args, sm_count, no_convert=False)
-    if name == "ScaleSweep_no_convert":
-        return run_weighted_benchmark(args, sm_count, no_convert=True)
-    if name == "ScaleSweep_MSE_no_convert":
-        return run_mse_benchmark(args, sm_count, no_convert=True)
-    if name == "AbsMax_no_convert":
-        return run_absmax_benchmark(args, sm_count)
-    if name == "vllm":
-        return run_vllm_benchmark(args, sm_count)
-    raise ValueError(f"unknown benchmark: {name}")
+def run_benchmark(name, args, sm_count, sm):
+    case = KERNEL_CASES_BY_NAME[name]
+    skip_reason = should_skip_kernel(case, sm)
+    if skip_reason is not None:
+        print(f"skipping {case.name}: {skip_reason}")
+        return None
+    if case.kind == "weighted":
+        return run_weighted_benchmark(case, args, sm_count)
+    if case.kind == "mse":
+        return run_mse_benchmark(case, args, sm_count)
+    if case.kind == "absmax":
+        return run_absmax_benchmark(case, args, sm_count)
+    if case.kind == "vllm":
+        return run_vllm_benchmark(case, args, sm_count)
+    raise ValueError(f"unknown benchmark kind for {name}: {case.kind}")
 
 
 def main():
@@ -277,9 +333,12 @@ def main():
         raise ValueError("--output can only be used when running one benchmark")
 
     sm_count = torch.cuda.get_device_properties("cuda").multi_processor_count
+    sm = current_sm()
 
     for name in args.benchmarks:
-        results = run_benchmark(name, args, sm_count)
+        results = run_benchmark(name, args, sm_count, sm)
+        if results is None:
+            continue
         write_results(results, args)
 
 
