@@ -15,7 +15,7 @@ from helper import (
     make_w,
     weighted_error_stats,
 )
-from kernel_AbsMax_no_convert import absmax_quantize_no_convert
+from kernel_AbsMax_simulate_fp4 import absmax_quantize_simulate_fp4
 from kernel_ScaleSweep import (
     LOWER_BOUND as SCALESWEEP_LOWER_BOUND,
     UPPER_BOUND as SCALESWEEP_UPPER_BOUND,
@@ -27,15 +27,15 @@ from kernel_ScaleSweep_MSE import (
     UPPER_BOUND as SCALESWEEP_MSE_UPPER_BOUND,
     scalesweep_quantize as mse_scalesweep_quantize,
 )
-from kernel_ScaleSweep_MSE_no_convert import (
-    LOWER_BOUND as SCALESWEEP_MSE_NO_CONVERT_LOWER_BOUND,
-    UPPER_BOUND as SCALESWEEP_MSE_NO_CONVERT_UPPER_BOUND,
-    scalesweep_quantize as mse_scalesweep_no_convert_quantize,
+from kernel_ScaleSweep_MSE_simulate_fp4 import (
+    LOWER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
+    UPPER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
+    scalesweep_quantize as mse_scalesweep_simulate_fp4_quantize,
 )
-from kernel_ScaleSweep_no_convert import (
-    LOWER_BOUND as SCALESWEEP_NO_CONVERT_LOWER_BOUND,
-    UPPER_BOUND as SCALESWEEP_NO_CONVERT_UPPER_BOUND,
-    scalesweep_quantize as scalesweep_no_convert_quantize,
+from kernel_ScaleSweep_simulate_fp4 import (
+    LOWER_BOUND as SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
+    UPPER_BOUND as SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
+    scalesweep_quantize as scalesweep_simulate_fp4_quantize,
 )
 from kernel_vllm import unswizzle_vllm_fp4_scale
 
@@ -57,12 +57,10 @@ class KernelCase:
 
 KERNEL_CASES = (
     KernelCase(
-        name="ScaleSweep",
-        result_name="triton.ScaleSweep",
-        kind="weighted",
-        quantize=scalesweep_quantize,
-        lower_bound=SCALESWEEP_LOWER_BOUND,
-        upper_bound=SCALESWEEP_UPPER_BOUND,
+        name="vllm",
+        result_name="triton.vllm",
+        kind="vllm",
+        fp8_max=448.0,
         min_sm=100,
     ),
     KernelCase(
@@ -75,34 +73,36 @@ KERNEL_CASES = (
         min_sm=100,
     ),
     KernelCase(
-        name="ScaleSweep_no_convert",
-        result_name="triton.ScaleSweep_no_convert",
+        name="ScaleSweep",
+        result_name="triton.ScaleSweep",
         kind="weighted",
-        quantize=scalesweep_no_convert_quantize,
-        lower_bound=SCALESWEEP_NO_CONVERT_LOWER_BOUND,
-        upper_bound=SCALESWEEP_NO_CONVERT_UPPER_BOUND,
-    ),
-    KernelCase(
-        name="ScaleSweep_MSE_no_convert",
-        result_name="triton.ScaleSweep_MSE_no_convert",
-        kind="mse",
-        quantize=mse_scalesweep_no_convert_quantize,
-        lower_bound=SCALESWEEP_MSE_NO_CONVERT_LOWER_BOUND,
-        upper_bound=SCALESWEEP_MSE_NO_CONVERT_UPPER_BOUND,
-    ),
-    KernelCase(
-        name="AbsMax_no_convert",
-        result_name="triton.AbsMax_no_convert",
-        kind="absmax",
-        quantize=absmax_quantize_no_convert,
-        fp8_max=448.0,
-    ),
-    KernelCase(
-        name="vllm",
-        result_name="triton.vllm",
-        kind="vllm",
-        fp8_max=448.0,
+        quantize=scalesweep_quantize,
+        lower_bound=SCALESWEEP_LOWER_BOUND,
+        upper_bound=SCALESWEEP_UPPER_BOUND,
         min_sm=100,
+    ),
+    KernelCase(
+        name="AbsMax_simulate_fp4",
+        result_name="triton.AbsMax_simulate_fp4",
+        kind="absmax",
+        quantize=absmax_quantize_simulate_fp4,
+        fp8_max=448.0,
+    ),
+    KernelCase(
+        name="ScaleSweep_MSE_simulate_fp4",
+        result_name="triton.ScaleSweep_MSE_simulate_fp4",
+        kind="mse",
+        quantize=mse_scalesweep_simulate_fp4_quantize,
+        lower_bound=SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
+    ),
+    KernelCase(
+        name="ScaleSweep_simulate_fp4",
+        result_name="triton.ScaleSweep_simulate_fp4",
+        kind="weighted",
+        quantize=scalesweep_simulate_fp4_quantize,
+        lower_bound=SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
+        upper_bound=SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
     ),
 )
 KERNEL_CASES_BY_NAME = {case.name: case for case in KERNEL_CASES}

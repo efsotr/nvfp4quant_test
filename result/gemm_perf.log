@@ -1,0 +1,7 @@
+kernel,mse,max_abs_err
+vllm,SKIP,requires sm_100, current device is sm_89
+ScaleSweep_MSE,SKIP,requires sm_100, current device is sm_89
+ScaleSweep,SKIP,requires sm_100, current device is sm_89
+AbsMax_simulate_fp4,74.1333,47.5000
+ScaleSweep_MSE_simulate_fp4,54.0419,42.0625
+ScaleSweep_simulate_fp4,54.0395,42.2031

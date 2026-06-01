@@ -20,15 +20,15 @@ from kernel_ScaleSweep_MSE import (
     UPPER_BOUND as SCALESWEEP_MSE_UPPER_BOUND,
     scalesweep_quantize as mse_scalesweep_quantize,
 )
-from kernel_ScaleSweep_MSE_no_convert import (
-    LOWER_BOUND as SCALESWEEP_MSE_NO_CONVERT_LOWER_BOUND,
-    UPPER_BOUND as SCALESWEEP_MSE_NO_CONVERT_UPPER_BOUND,
-    scalesweep_quantize as mse_scalesweep_no_convert_quantize,
+from kernel_ScaleSweep_MSE_simulate_fp4 import (
+    LOWER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
+    UPPER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
+    scalesweep_quantize as mse_scalesweep_simulate_fp4_quantize,
 )
-from kernel_ScaleSweep_no_convert import (
-    LOWER_BOUND as SCALESWEEP_NO_CONVERT_LOWER_BOUND,
-    UPPER_BOUND as SCALESWEEP_NO_CONVERT_UPPER_BOUND,
-    scalesweep_quantize as scalesweep_no_convert_quantize,
+from kernel_ScaleSweep_simulate_fp4 import (
+    LOWER_BOUND as SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
+    UPPER_BOUND as SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
+    scalesweep_quantize as scalesweep_simulate_fp4_quantize,
 )
 
 
@@ -72,17 +72,17 @@ KERNELS = (
         min_sm=100,
     ),
     KernelCase(
-        name="ScaleSweep_no_convert",
-        lower_bound=SCALESWEEP_NO_CONVERT_LOWER_BOUND,
-        upper_bound=SCALESWEEP_NO_CONVERT_UPPER_BOUND,
-        quantize=scalesweep_no_convert_quantize,
+        name="ScaleSweep_simulate_fp4",
+        lower_bound=SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
+        upper_bound=SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
+        quantize=scalesweep_simulate_fp4_quantize,
         weighted=True,
     ),
     KernelCase(
-        name="ScaleSweep_MSE_no_convert",
-        lower_bound=SCALESWEEP_MSE_NO_CONVERT_LOWER_BOUND,
-        upper_bound=SCALESWEEP_MSE_NO_CONVERT_UPPER_BOUND,
-        quantize=mse_scalesweep_no_convert_quantize,
+        name="ScaleSweep_MSE_simulate_fp4",
+        lower_bound=SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
+        quantize=mse_scalesweep_simulate_fp4_quantize,
         weighted=False,
     ),
 )

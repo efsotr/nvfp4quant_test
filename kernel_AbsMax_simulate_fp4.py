@@ -1,4 +1,4 @@
-from kernel_ScaleSweep_MSE_no_convert import (
+from kernel_ScaleSweep_MSE_simulate_fp4 import (
     _load_normalized_16_cols,
     _max_abs_16,
     _pack_final_code_16_cols,
@@ -26,7 +26,7 @@ ABSMAX_CONFIGS = [
     key=["NUM_BLOCKS"],
 )
 @triton.jit
-def absmax_quantize_no_convert_kernel(
+def absmax_quantize_simulate_fp4_kernel(
     weight_ptr,
     scale_ptr,
     code_i32_ptr,
@@ -79,7 +79,7 @@ def absmax_quantize_no_convert_kernel(
     tl.store(code_i32_ptr + code_i32_offsets + 1, hi.to(tl.int32), mask=block_mask)
 
 
-def absmax_quantize_no_convert(weight, global_scale_inv, block_size):
+def absmax_quantize_simulate_fp4(weight, global_scale_inv, block_size):
     if block_size != 16:
         raise ValueError("optimized kernel is specialized for block_size == 16")
     if weight.numel() % 16 != 0:
@@ -100,7 +100,7 @@ def absmax_quantize_no_convert(weight, global_scale_inv, block_size):
 
     meta = lambda config: (triton.cdiv(num_blocks, config["BLOCKS_PER_PROGRAM"]), )
 
-    absmax_quantize_no_convert_kernel[meta](
+    absmax_quantize_simulate_fp4_kernel[meta](
         weight,
         scale,
         code_i32,

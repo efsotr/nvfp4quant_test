@@ -1,5 +1,5 @@
 from kernel_ScaleSweep import _load_shared_importance_16_cols
-from kernel_ScaleSweep_MSE_no_convert import (
+from kernel_ScaleSweep_MSE_simulate_fp4 import (
     SCALESWEEP_CONFIGS,
     fp32_round_to_fp4_value,
     _load_normalized_16_cols,
