@@ -1,10 +1,4 @@
 import argparse
-parser = argparse.ArgumentParser()
-parser.add_argument("--dim", type=int, default=8192)
-parser.add_argument("--load", type=str, choices=["default", "sep", "trans"], default="sep")
-parser.add_argument("--mse", type=str, choices=["direct", "default"], default="default")
-args = parser.parse_args()
-print(args)
 
 from helper import (
     check_sm100,
@@ -13,15 +7,6 @@ from helper import (
     get_nvfp4_global_scales,
     make_w,
 )
-from helper16 import (
-    _load_16_cols_2d_seperate,
-    _max_abs_16,
-    _mse_after_e2m1_roundtrip_16_cols_direct,
-    _pack_final_code_16_cols,
-)
-
-LOAD_FN = _load_16_cols_2d_seperate
-MSE_FN = _mse_after_e2m1_roundtrip_16_cols_direct
 
 import torch
 sm_count = torch.cuda.get_device_properties("cuda").multi_processor_count
@@ -33,6 +18,255 @@ import triton.language as tl
 BLOCK_SIZE = 16
 LOWER_BOUND = -3
 UPPER_BOUND = 7
+
+
+@triton.jit
+def _fp32x16_to_e2m1_u32x2(
+    x0, x1, x2, x3,
+    x4, x5, x6, x7,
+    x8, x9, x10, x11,
+    x12, x13, x14, x15,
+):
+    lo, hi = tl.inline_asm_elementwise(
+        asm="""
+        {
+          .reg .b8 b0;
+          .reg .b8 b1;
+          .reg .b8 b2;
+          .reg .b8 b3;
+          .reg .b8 b4;
+          .reg .b8 b5;
+          .reg .b8 b6;
+          .reg .b8 b7;
+
+          cvt.rn.satfinite.e2m1x2.f32 b0,  $3,  $2;
+          cvt.rn.satfinite.e2m1x2.f32 b1,  $5,  $4;
+          cvt.rn.satfinite.e2m1x2.f32 b2,  $7,  $6;
+          cvt.rn.satfinite.e2m1x2.f32 b3,  $9,  $8;
+          cvt.rn.satfinite.e2m1x2.f32 b4,  $11, $10;
+          cvt.rn.satfinite.e2m1x2.f32 b5,  $13, $12;
+          cvt.rn.satfinite.e2m1x2.f32 b6,  $15, $14;
+          cvt.rn.satfinite.e2m1x2.f32 b7,  $17, $16;
+
+          mov.b32 $0, {b0, b1, b2, b3};
+          mov.b32 $1, {b4, b5, b6, b7};
+        }
+        """,
+        constraints="=r,=r,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f",
+        args=[
+            x0, x1, x2, x3,
+            x4, x5, x6, x7,
+            x8, x9, x10, x11,
+            x12, x13, x14, x15,
+        ],
+        dtype=(tl.uint32, tl.uint32),
+        is_pure=True,
+        pack=1,
+    )
+
+    return lo, hi
+
+
+@triton.jit
+def _fp32_pair_to_e2m1_roundtrip_se(x0, x1):
+    se = tl.inline_asm_elementwise(
+        asm=r"""
+        {
+          .reg .b8  b;
+          .reg .b32 h;
+          .reg .b16 lo;
+          .reg .b16 hi;
+          .reg .f32 q0;
+          .reg .f32 q1;
+          .reg .f32 d0;
+          .reg .f32 d1;
+
+          cvt.rn.satfinite.e2m1x2.f32 b, $2, $1;
+          cvt.rn.f16x2.e2m1x2 h, b;
+
+          mov.b32 {lo, hi}, h;
+          cvt.f32.f16 q0, lo;
+          cvt.f32.f16 q1, hi;
+
+          sub.rn.f32 d0, q0, $1;
+          sub.rn.f32 d1, q1, $2;
+          mul.rn.f32 d0, d0, d0;
+          fma.rn.f32 $0, d1, d1, d0;
+        }
+        """,
+        constraints="=f,f,f",
+        args=[x0, x1],
+        dtype=tl.float32,
+        is_pure=True,
+        pack=1,
+    )
+    return se
+
+
+@triton.jit
+def _fp32x16_to_e2m1_roundtrip_se(
+    x0, x1, x2, x3,
+    x4, x5, x6, x7,
+    x8, x9, x10, x11,
+    x12, x13, x14, x15,
+):
+    s01 = _fp32_pair_to_e2m1_roundtrip_se(x0, x1)
+    s23 = _fp32_pair_to_e2m1_roundtrip_se(x2, x3)
+    s45 = _fp32_pair_to_e2m1_roundtrip_se(x4, x5)
+    s67 = _fp32_pair_to_e2m1_roundtrip_se(x6, x7)
+    s89 = _fp32_pair_to_e2m1_roundtrip_se(x8, x9)
+    sAB = _fp32_pair_to_e2m1_roundtrip_se(x10, x11)
+    sCD = _fp32_pair_to_e2m1_roundtrip_se(x12, x13)
+    sEF = _fp32_pair_to_e2m1_roundtrip_se(x14, x15)
+
+    return ((s01 + s23) + (s45 + s67)) + ((s89 + sAB) + (sCD + sEF))
+
+
+@triton.jit
+def _mse_after_e2m1_roundtrip_16_cols_direct(
+    v0, v1, v2, v3,
+    v4, v5, v6, v7,
+    v8, v9, v10, v11,
+    v12, v13, v14, v15,
+    inv_scale,
+    scale,
+):
+    x0 = v0 * inv_scale
+    x1 = v1 * inv_scale
+    x2 = v2 * inv_scale
+    x3 = v3 * inv_scale
+    x4 = v4 * inv_scale
+    x5 = v5 * inv_scale
+    x6 = v6 * inv_scale
+    x7 = v7 * inv_scale
+    x8 = v8 * inv_scale
+    x9 = v9 * inv_scale
+    x10 = v10 * inv_scale
+    x11 = v11 * inv_scale
+    x12 = v12 * inv_scale
+    x13 = v13 * inv_scale
+    x14 = v14 * inv_scale
+    x15 = v15 * inv_scale
+
+    se = _fp32x16_to_e2m1_roundtrip_se(
+        x0, x1, x2, x3,
+        x4, x5, x6, x7,
+        x8, x9, x10, x11,
+        x12, x13, x14, x15,
+    )
+    return se * (scale * scale)
+
+
+@triton.jit
+def _pack_final_code_16_cols(
+    v0, v1, v2, v3,
+    v4, v5, v6, v7,
+    v8, v9, v10, v11,
+    v12, v13, v14, v15,
+    inv_scale,
+):
+    x0 = v0 * inv_scale
+    x1 = v1 * inv_scale
+    x2 = v2 * inv_scale
+    x3 = v3 * inv_scale
+    x4 = v4 * inv_scale
+    x5 = v5 * inv_scale
+    x6 = v6 * inv_scale
+    x7 = v7 * inv_scale
+    x8 = v8 * inv_scale
+    x9 = v9 * inv_scale
+    x10 = v10 * inv_scale
+    x11 = v11 * inv_scale
+    x12 = v12 * inv_scale
+    x13 = v13 * inv_scale
+    x14 = v14 * inv_scale
+    x15 = v15 * inv_scale
+
+    return _fp32x16_to_e2m1_u32x2(
+        x0, x1, x2, x3,
+        x4, x5, x6, x7,
+        x8, x9, x10, x11,
+        x12, x13, x14, x15,
+    )
+
+
+@triton.jit
+def _max_abs_16(
+    v0, v1, v2, v3,
+    v4, v5, v6, v7,
+    v8, v9, v10, v11,
+    v12, v13, v14, v15,
+):
+    m0 = tl.maximum(tl.abs(v0), tl.abs(v1))
+    m1 = tl.maximum(tl.abs(v2), tl.abs(v3))
+    m2 = tl.maximum(tl.abs(v4), tl.abs(v5))
+    m3 = tl.maximum(tl.abs(v6), tl.abs(v7))
+    m4 = tl.maximum(tl.abs(v8), tl.abs(v9))
+    m5 = tl.maximum(tl.abs(v10), tl.abs(v11))
+    m6 = tl.maximum(tl.abs(v12), tl.abs(v13))
+    m7 = tl.maximum(tl.abs(v14), tl.abs(v15))
+
+    m01 = tl.maximum(m0, m1)
+    m23 = tl.maximum(m2, m3)
+    m45 = tl.maximum(m4, m5)
+    m67 = tl.maximum(m6, m7)
+
+    m0123 = tl.maximum(m01, m23)
+    m4567 = tl.maximum(m45, m67)
+
+    return tl.maximum(m0123, m4567)
+
+
+@triton.jit
+def _load_16_cols_2d_seperate(
+    ptr,
+    block_offsets,
+    block_mask,
+    global_scale_inv,
+):
+    base_elem = block_offsets * 16
+
+    v0 = tl.load(ptr + base_elem + 0, mask=block_mask, other=0.0)
+    v1 = tl.load(ptr + base_elem + 1, mask=block_mask, other=0.0)
+    v2 = tl.load(ptr + base_elem + 2, mask=block_mask, other=0.0)
+    v3 = tl.load(ptr + base_elem + 3, mask=block_mask, other=0.0)
+    v4 = tl.load(ptr + base_elem + 4, mask=block_mask, other=0.0)
+    v5 = tl.load(ptr + base_elem + 5, mask=block_mask, other=0.0)
+    v6 = tl.load(ptr + base_elem + 6, mask=block_mask, other=0.0)
+    v7 = tl.load(ptr + base_elem + 7, mask=block_mask, other=0.0)
+    v8 = tl.load(ptr + base_elem + 8, mask=block_mask, other=0.0)
+    v9 = tl.load(ptr + base_elem + 9, mask=block_mask, other=0.0)
+    v10 = tl.load(ptr + base_elem + 10, mask=block_mask, other=0.0)
+    v11 = tl.load(ptr + base_elem + 11, mask=block_mask, other=0.0)
+    v12 = tl.load(ptr + base_elem + 12, mask=block_mask, other=0.0)
+    v13 = tl.load(ptr + base_elem + 13, mask=block_mask, other=0.0)
+    v14 = tl.load(ptr + base_elem + 14, mask=block_mask, other=0.0)
+    v15 = tl.load(ptr + base_elem + 15, mask=block_mask, other=0.0)
+
+    v0 = v0.to(tl.float32) * global_scale_inv
+    v1 = v1.to(tl.float32) * global_scale_inv
+    v2 = v2.to(tl.float32) * global_scale_inv
+    v3 = v3.to(tl.float32) * global_scale_inv
+    v4 = v4.to(tl.float32) * global_scale_inv
+    v5 = v5.to(tl.float32) * global_scale_inv
+    v6 = v6.to(tl.float32) * global_scale_inv
+    v7 = v7.to(tl.float32) * global_scale_inv
+    v8 = v8.to(tl.float32) * global_scale_inv
+    v9 = v9.to(tl.float32) * global_scale_inv
+    v10 = v10.to(tl.float32) * global_scale_inv
+    v11 = v11.to(tl.float32) * global_scale_inv
+    v12 = v12.to(tl.float32) * global_scale_inv
+    v13 = v13.to(tl.float32) * global_scale_inv
+    v14 = v14.to(tl.float32) * global_scale_inv
+    v15 = v15.to(tl.float32) * global_scale_inv
+
+    return (
+        v0, v1, v2, v3,
+        v4, v5, v6, v7,
+        v8, v9, v10, v11,
+        v12, v13, v14, v15,
+    )
+
 
 SCALESWEEP_CONFIGS = [
     triton.Config({"BLOCKS_PER_PROGRAM": 32, "NUM_STAGES": 2}, num_warps=1),
@@ -72,7 +306,7 @@ def scalesweep_quantize_kernel(
         v4, v5, v6, v7,
         v8, v9, v10, v11,
         v12, v13, v14, v15,
-    ) = LOAD_FN(
+    ) = _load_16_cols_2d_seperate(
         weight_ptr,
         block_offsets,
         block_mask,
@@ -99,7 +333,7 @@ def scalesweep_quantize_kernel(
         scale_i = scale_fp8.to(tl.float32)
         inv_scale_i = 1.0 / scale_i
 
-        mse_i = MSE_FN(
+        mse_i = _mse_after_e2m1_roundtrip_16_cols_direct(
             v0, v1, v2, v3,
             v4, v5, v6, v7,
             v8, v9, v10, v11,
@@ -195,7 +429,16 @@ def scalesweep_quantize(
 
 import triton.testing as tts
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", type=int, default=8192)
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    print(args)
+
     check_sm100()
     print(f"[triton.ScaleSweep [{LOWER_BOUND}, {UPPER_BOUND}]] [SM {sm_count}]")
 

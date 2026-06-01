@@ -1,11 +1,4 @@
 import argparse
-parser = argparse.ArgumentParser()
-parser.add_argument("--dim", type=int, default=8192)
-parser.add_argument("--load", type=str, choices=["sep"], default="sep")
-parser.add_argument("--mse", type=str, choices=["direct", "default"], default="direct")
-parser.add_argument("--imp", type=str, choices=["ones", "ramp", "random"], default="ones")
-args = parser.parse_args()
-print(args)
 
 from helper import (
     check_sm100,
@@ -13,19 +6,13 @@ from helper import (
     error_stats,
     get_nvfp4_global_scales,
     make_w,
-    time_cuda,
 )
-from helper16 import (
+from bench16_one import (
+    SCALESWEEP_CONFIGS,
     _load_16_cols_2d_seperate,
-    _load_16_cols_2d,
-    _load_16_cols_2d_trans,
     _max_abs_16,
     _pack_final_code_16_cols,
-    _fp32x16_to_e2m1_roundtrip_fp32x16,
 )
-
-LOAD_FN = None
-LOAD_FN = _load_16_cols_2d_seperate
 
 import torch
 sm_count = torch.cuda.get_device_properties("cuda").multi_processor_count
@@ -37,15 +24,6 @@ import triton.language as tl
 BLOCK_SIZE = 16
 LOWER_BOUND = -8
 UPPER_BOUND = 7
-
-SCALESWEEP_CONFIGS = [
-    triton.Config({"BLOCKS_PER_PROGRAM": 32, "NUM_STAGES": 2}, num_warps=1),
-    triton.Config({"BLOCKS_PER_PROGRAM": 64, "NUM_STAGES": 2}, num_warps=2),
-    triton.Config({"BLOCKS_PER_PROGRAM": 128, "NUM_STAGES": 2}, num_warps=4),
-    triton.Config({"BLOCKS_PER_PROGRAM": 256, "NUM_STAGES": 2}, num_warps=8),
-    triton.Config({"BLOCKS_PER_PROGRAM": 512, "NUM_STAGES": 2}, num_warps=16),
-    triton.Config({"BLOCKS_PER_PROGRAM": 1024, "NUM_STAGES": 2}, num_warps=32),
-]
 
 
 @triton.jit
@@ -83,76 +61,6 @@ def _load_imp_16_cols_global(
         iw8, iw9, iw10, iw11,
         iw12, iw13, iw14, iw15,
     )
-
-
-@triton.jit
-def _weighted_mse_after_e2m1_roundtrip_16_cols(
-    v0, v1, v2, v3,
-    v4, v5, v6, v7,
-    v8, v9, v10, v11,
-    v12, v13, v14, v15,
-    iw0, iw1, iw2, iw3,
-    iw4, iw5, iw6, iw7,
-    iw8, iw9, iw10, iw11,
-    iw12, iw13, iw14, iw15,
-    inv_scale,
-    scale,
-):
-    # Same algebraic form as helper16._mse_after_e2m1_roundtrip_16_cols:
-    #   x = vals / scale
-    #   mse = sum_i imp_i * (q_i - x_i)^2 * scale^2
-    x0 = v0 * inv_scale
-    x1 = v1 * inv_scale
-    x2 = v2 * inv_scale
-    x3 = v3 * inv_scale
-    x4 = v4 * inv_scale
-    x5 = v5 * inv_scale
-    x6 = v6 * inv_scale
-    x7 = v7 * inv_scale
-    x8 = v8 * inv_scale
-    x9 = v9 * inv_scale
-    x10 = v10 * inv_scale
-    x11 = v11 * inv_scale
-    x12 = v12 * inv_scale
-    x13 = v13 * inv_scale
-    x14 = v14 * inv_scale
-    x15 = v15 * inv_scale
-
-    (
-        q0, q1, q2, q3,
-        q4, q5, q6, q7,
-        q8, q9, q10, q11,
-        q12, q13, q14, q15,
-    ) = _fp32x16_to_e2m1_roundtrip_fp32x16(
-        x0, x1, x2, x3,
-        x4, x5, x6, x7,
-        x8, x9, x10, x11,
-        x12, x13, x14, x15,
-    )
-
-    e0 = q0 - x0
-    e1 = q1 - x1
-    e2 = q2 - x2
-    e3 = q3 - x3
-    e4 = q4 - x4
-    e5 = q5 - x5
-    e6 = q6 - x6
-    e7 = q7 - x7
-    e8 = q8 - x8
-    e9 = q9 - x9
-    e10 = q10 - x10
-    e11 = q11 - x11
-    e12 = q12 - x12
-    e13 = q13 - x13
-    e14 = q14 - x14
-    e15 = q15 - x15
-
-    return (
-        ((e0 * e0 * iw0 + e1 * e1 * iw1) + (e2 * e2 * iw2 + e3 * e3 * iw3)
-        + (e4 * e4 * iw4 + e5 * e5 * iw5) + (e6 * e6 * iw6 + e7 * e7 * iw7))
-        + ((e8 * e8 * iw8 + e9 * e9 * iw9) + (e10 * e10 * iw10 + e11 * e11 * iw11)
-        + (e12 * e12 * iw12 + e13 * e13 * iw13) + (e14 * e14 * iw14 + e15 * e15 * iw15))
-    ) * (scale * scale)
 
 
 @triton.jit
@@ -283,10 +191,6 @@ def _weighted_mse_after_e2m1_roundtrip_16_cols_direct(
 
     return se * (scale * scale)
 
-
-MSE_FN = _weighted_mse_after_e2m1_roundtrip_16_cols_direct
-
-
 @triton.autotune(
     configs=SCALESWEEP_CONFIGS,
     key=["NUM_BLOCKS", "LOWER_BOUND", "NUM_CANDIDATES", "BLOCKS_PER_OUT"],
@@ -317,7 +221,7 @@ def scalesweep_quantize_kernel(
         v4, v5, v6, v7,
         v8, v9, v10, v11,
         v12, v13, v14, v15,
-    ) = LOAD_FN(
+    ) = _load_16_cols_2d_seperate(
         weight_ptr,
         block_offsets,
         block_mask,
@@ -358,7 +262,7 @@ def scalesweep_quantize_kernel(
         scale_i = scale_fp8.to(tl.float32)
         inv_scale_i = 1.0 / scale_i
 
-        mse_i = MSE_FN(
+        mse_i = _weighted_mse_after_e2m1_roundtrip_16_cols_direct(
             v0, v1, v2, v3,
             v4, v5, v6, v7,
             v8, v9, v10, v11,
@@ -494,7 +398,17 @@ def scalesweep_quantize(
 
 import triton.testing as tts
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", type=int, default=8192)
+    parser.add_argument("--imp", type=str, choices=["ones", "ramp", "random"], default="ones")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    print(args)
+
     check_sm100()
     print(f"[triton.ScaleSweep.i.global [{LOWER_BOUND}, {UPPER_BOUND}]] [SM {sm_count}]")
 
