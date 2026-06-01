@@ -404,7 +404,7 @@ def main():
 
     check_sm100()
     results = {
-        "name": "triton.ScaleSweep.i.global",
+        "name": "triton.ScaleSweep",
         "lower_bound": LOWER_BOUND,
         "upper_bound": UPPER_BOUND,
         "sm_count": sm_count,

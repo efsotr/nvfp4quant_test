@@ -143,7 +143,7 @@ def main():
     args = parse_args()
 
     results = {
-        "name": "triton.AbsMax.no_convert",
+        "name": "triton.AbsMax_no_convert",
         "block_size": BLOCK_SIZE,
         "fp8_max": args.fp8_max,
         "sm_count": sm_count,

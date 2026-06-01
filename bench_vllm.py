@@ -49,7 +49,7 @@ def main():
     args = parse_args()
     check_sm100()
     results = {
-        "name": "vllm._custom_ops.scaled_fp4_quant",
+        "name": "triton.vllm",
         "dim": args.dim,
         "results": [],
     }

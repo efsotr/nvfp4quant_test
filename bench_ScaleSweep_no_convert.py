@@ -333,7 +333,7 @@ def main():
     args = parse_args()
 
     results = {
-        "name": "triton.ScaleSweep.i.global",
+        "name": "triton.ScaleSweep_no_convert",
         "lower_bound": LOWER_BOUND,
         "upper_bound": UPPER_BOUND,
         "sm_count": sm_count,
