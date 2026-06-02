@@ -1,4 +1,8 @@
-# nvfp4quant_test
+# Preliminary ScaleSweep NVFP4 Quant-Operator/GEMM Speed and Quantization Error Evaluation
+
+For details of ScaleSweep, see `ScaleSweep_paper/`. 
+
+`kernel_ScaleSweep*.py` provides preliminary implementations of ScaleSweep and still requires further refinement.
 
 NVFP4 quantization and GEMM benchmark scripts. Benchmark outputs are written as JSON under `result/`, and `generate_markdown.py` can convert those JSON files into `result/benchmark_report.md`.
 
@@ -37,7 +41,7 @@ The tables below are built from the current files under `result/`.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2.11.0+cu130 | 0.22.0 | 13.0 | 580.95.05 | NVIDIA RTX PRO 6000 Blackwell Server Edition | 120 | 188 | 101974081536 |
 
-### Quantization Result
+### Quantization Speed
 
 Latency in milliseconds. Columns are `bsz`, with `dim=8192` for all rows.
 The `vllm` quantization baseline uses `vllm._custom_ops.scaled_fp4_quant`.
@@ -65,9 +69,9 @@ Error metrics are shown only for `bsz=8192`.
 
 The `vllm` GEMM baseline uses `vllm._custom_ops.cutlass_scaled_fp4_mm`.
 
-| kernel | status | latency_ms | mse | max_abs_error |
-| --- | --- | --- | --- | --- |
-| vllm | ok | 0.720463 | 562.049 | 132 |
-| ScaleSweep_MSE_swizzled | ok | 0.702919 | 444.243 | 117.812 |
-| ScaleSweep_MSE_round_swizzled | ok | 0.702615 | 444.243 | 117.812 |
-| ScaleSweep_swizzled | ok | 0.703141 | 444.177 | 115.625 |
+| kernel | status | mse | max_abs_error |
+| --- | --- | --- | --- |
+| vllm | ok | 562.049 | 132 |
+| ScaleSweep_MSE_swizzled | ok | 444.243 | 117.812 |
+| ScaleSweep_MSE_round_swizzled | ok | 444.243 | 117.812 |
+| ScaleSweep_swizzled | ok | 444.177 | 115.625 |
