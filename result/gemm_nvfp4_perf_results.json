@@ -1,0 +1,59 @@
+{
+  "name": "gemm_nvfp4_perf",
+  "sm_count": 188,
+  "sm": 120,
+  "dim": 8192,
+  "mode": "native",
+  "input_distribution": "Laplace(loc=0, scale=1)",
+  "weight_distribution": "Laplace(loc=0, scale=1)",
+  "channel_square_norm": "mean",
+  "environment": {
+    "torch": "2.11.0+cu130",
+    "vllm": "0.22.0",
+    "cuda": "13.0",
+    "gpu_driver": "580.95.05",
+    "gpu": {
+      "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "sm": 120,
+      "capability": "12.0",
+      "sm_count": 188,
+      "total_memory_bytes": 101974081536
+    }
+  },
+  "warmup": 10,
+  "rep": 100,
+  "results": [
+    {
+      "kernel": "vllm",
+      "status": "ok",
+      "latency_ms": 0.7204634444466953,
+      "mse": 562.0491333007812,
+      "max_abs_error": 132.0,
+      "reason": null
+    },
+    {
+      "kernel": "ScaleSweep_MSE_swizzled",
+      "status": "ok",
+      "latency_ms": 0.7029187969401874,
+      "mse": 444.2434997558594,
+      "max_abs_error": 117.8125,
+      "reason": null
+    },
+    {
+      "kernel": "ScaleSweep_MSE_round_swizzled",
+      "status": "ok",
+      "latency_ms": 0.7026145708348069,
+      "mse": 444.2434997558594,
+      "max_abs_error": 117.8125,
+      "reason": null
+    },
+    {
+      "kernel": "ScaleSweep_swizzled",
+      "status": "ok",
+      "latency_ms": 0.7031411006387356,
+      "mse": 444.176513671875,
+      "max_abs_error": 115.625,
+      "reason": null
+    }
+  ]
+}

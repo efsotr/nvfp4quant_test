@@ -1,0 +1,94 @@
+{
+  "name": "triton.ScaleSweep_MSE_round_swizzled",
+  "sm_count": 188,
+  "dim": 8192,
+  "weight_distribution": "Laplace(loc=0, scale=1)",
+  "environment": {
+    "torch": "2.11.0+cu130",
+    "vllm": "0.22.0",
+    "cuda": "13.0",
+    "gpu_driver": "580.95.05",
+    "gpu": {
+      "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "sm": 120,
+      "capability": "12.0",
+      "sm_count": 188,
+      "total_memory_bytes": 101974081536
+    }
+  },
+  "results": [
+    {
+      "bsz": 1,
+      "dim": 8192,
+      "latency_ms": 0.0063351192246746575,
+      "mse": 0.013490807265043259,
+      "max_abs_error": 0.5625
+    },
+    {
+      "bsz": 8,
+      "dim": 8192,
+      "latency_ms": 0.0077948929601077445,
+      "mse": 0.013724222779273987,
+      "max_abs_error": 0.73828125
+    },
+    {
+      "bsz": 64,
+      "dim": 8192,
+      "latency_ms": 0.009293722716123968,
+      "mse": 0.013625703752040863,
+      "max_abs_error": 1.0
+    },
+    {
+      "bsz": 128,
+      "dim": 8192,
+      "latency_ms": 0.01011675592221388,
+      "mse": 0.013609488494694233,
+      "max_abs_error": 1.0
+    },
+    {
+      "bsz": 256,
+      "dim": 8192,
+      "latency_ms": 0.012614861352785788,
+      "mse": 0.013594641350209713,
+      "max_abs_error": 0.96875
+    },
+    {
+      "bsz": 512,
+      "dim": 8192,
+      "latency_ms": 0.016876179161968072,
+      "mse": 0.013596214354038239,
+      "max_abs_error": 1.34375
+    },
+    {
+      "bsz": 1024,
+      "dim": 8192,
+      "latency_ms": 0.025652778573578262,
+      "mse": 0.013600395061075687,
+      "max_abs_error": 1.34375
+    },
+    {
+      "bsz": 2048,
+      "dim": 8192,
+      "latency_ms": 0.04143291778691378,
+      "mse": 0.013604742474853992,
+      "max_abs_error": 1.34375
+    },
+    {
+      "bsz": 4096,
+      "dim": 8192,
+      "latency_ms": 0.07221039540340102,
+      "mse": 0.013600132428109646,
+      "max_abs_error": 1.34375
+    },
+    {
+      "bsz": 8192,
+      "dim": 8192,
+      "latency_ms": 0.13560882509633854,
+      "mse": 0.013595115393400192,
+      "max_abs_error": 1.34375
+    }
+  ],
+  "lower_bound": -3,
+  "upper_bound": 7,
+  "scale_layout": "swizzled"
+}

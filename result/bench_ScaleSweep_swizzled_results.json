@@ -1,0 +1,105 @@
+{
+  "name": "triton.ScaleSweep_swizzled",
+  "sm_count": 188,
+  "dim": 8192,
+  "weight_distribution": "Laplace(loc=0, scale=1)",
+  "environment": {
+    "torch": "2.11.0+cu130",
+    "vllm": "0.22.0",
+    "cuda": "13.0",
+    "gpu_driver": "580.95.05",
+    "gpu": {
+      "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "sm": 120,
+      "capability": "12.0",
+      "sm_count": 188,
+      "total_memory_bytes": 101974081536
+    }
+  },
+  "results": [
+    {
+      "bsz": 1,
+      "dim": 8192,
+      "latency_ms": 0.00852955218383681,
+      "mse": 0.013490807265043259,
+      "max_abs_error": 0.5625,
+      "weighted_mse": 0.013490807265043259
+    },
+    {
+      "bsz": 8,
+      "dim": 8192,
+      "latency_ms": 0.008763903479829624,
+      "mse": 0.013724222779273987,
+      "max_abs_error": 0.73828125,
+      "weighted_mse": 0.013724222779273987
+    },
+    {
+      "bsz": 64,
+      "dim": 8192,
+      "latency_ms": 0.010817966463817786,
+      "mse": 0.013625703752040863,
+      "max_abs_error": 1.0,
+      "weighted_mse": 0.013625703752040863
+    },
+    {
+      "bsz": 128,
+      "dim": 8192,
+      "latency_ms": 0.01295023239374663,
+      "mse": 0.013609488494694233,
+      "max_abs_error": 1.0,
+      "weighted_mse": 0.013609488494694233
+    },
+    {
+      "bsz": 256,
+      "dim": 8192,
+      "latency_ms": 0.01641733331471738,
+      "mse": 0.013594641350209713,
+      "max_abs_error": 0.96875,
+      "weighted_mse": 0.013594641350209713
+    },
+    {
+      "bsz": 512,
+      "dim": 8192,
+      "latency_ms": 0.0222496675687128,
+      "mse": 0.013596214354038239,
+      "max_abs_error": 1.34375,
+      "weighted_mse": 0.013596214354038239
+    },
+    {
+      "bsz": 1024,
+      "dim": 8192,
+      "latency_ms": 0.032751622477795665,
+      "mse": 0.013600395061075687,
+      "max_abs_error": 1.34375,
+      "weighted_mse": 0.013600395061075687
+    },
+    {
+      "bsz": 2048,
+      "dim": 8192,
+      "latency_ms": 0.05736538054272047,
+      "mse": 0.013604742474853992,
+      "max_abs_error": 1.34375,
+      "weighted_mse": 0.013604742474853992
+    },
+    {
+      "bsz": 4096,
+      "dim": 8192,
+      "latency_ms": 0.10037426564112767,
+      "mse": 0.013600132428109646,
+      "max_abs_error": 1.34375,
+      "weighted_mse": 0.013600132428109646
+    },
+    {
+      "bsz": 8192,
+      "dim": 8192,
+      "latency_ms": 0.18738879083989057,
+      "mse": 0.013595115393400192,
+      "max_abs_error": 1.34375,
+      "weighted_mse": 0.013595115393400192
+    }
+  ],
+  "lower_bound": -8,
+  "upper_bound": 7,
+  "imp": "ones",
+  "scale_layout": "swizzled"
+}
