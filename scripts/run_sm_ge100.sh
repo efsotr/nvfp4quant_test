@@ -24,6 +24,7 @@ rm -f result/bench_*_results.json result/gemm_*_results.json result/benchmark_re
 python bench.py \
   vllm \
   ScaleSweep_MSE_swizzled \
+  ScaleSweep_MSE_round_swizzled \
   ScaleSweep_swizzled \
   --output-dir result
 
