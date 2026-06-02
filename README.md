@@ -1,14 +1,8 @@
 # nvfp4quant_test
 
-NVFP4 quantization and GEMM benchmark scripts. Results are written as JSON under `result/` by default, and `generate_markdown.py` converts the generated JSON files into a markdown report.
+NVFP4 quantization and GEMM benchmark scripts. Benchmark outputs are written as JSON under `result/`, and `generate_markdown.py` can convert those JSON files into `result/benchmark_report.md`.
 
 ## Run
-
-Current hardware is `sm_89`, so use the simulate swizzled path:
-
-```bash
-./scripts/run_sm_lt100.sh
-```
 
 For `sm >= 100` hardware, use the native NVFP4/CUTLASS path:
 
@@ -16,7 +10,13 @@ For `sm >= 100` hardware, use the native NVFP4/CUTLASS path:
 ./scripts/run_sm_ge100.sh
 ```
 
-The scripts run only the swizzled matching `bench.py` kernels, run the matching GEMM script, and then write `result/benchmark_report.md`.
+For `sm < 100` hardware, use the simulate swizzled path:
+
+```bash
+./scripts/run_sm_lt100.sh
+```
+
+The scripts run the matching `bench.py` kernels, run the matching GEMM script, and write `result/benchmark_report.md`.
 
 ## Outputs
 
@@ -27,30 +27,47 @@ The scripts run only the swizzled matching `bench.py` kernels, run the matching 
 
 Both GEMM scripts use the same JSON shape and default output directory. GEMM input and weight tensors use `Laplace(loc=0, scale=1)`. Input-channel square norm uses `mean(x^2)` instead of `sum(x^2)`.
 
-## Current Generated Results
+## Current Results
 
-Generated on `sm_89`, `sm_count=142`, `dim=8192`. Because `sm < 100`, only simulate kernels were executed.
+The tables below are built from the current files under `result/`.
 
 ### Environment
 
 | torch | vllm | cuda | gpu_driver | gpu | sm | sm_count | total_memory_bytes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2.8.0+cu126 | 0.11.0 | 12.6 | 525.105.17 | NVIDIA L40 | 89 | 142 | 47620882432 |
+| 2.11.0+cu130 | 0.22.0 | 13.0 | 580.95.05 | NVIDIA RTX PRO 6000 Blackwell Server Edition | 120 | 188 | 101974081536 |
 
-### GEMM
+### Quantization Result
 
-| mode | kernel | status | latency_ms | mse | max_abs_error |
-| --- | --- | --- | --- | --- | --- |
-| simulate | AbsMax_simulate_fp4_swizzled | ok | - | 563.097 | 145.75 |
-| simulate | ScaleSweep_MSE_simulate_fp4_swizzled | ok | - | 444.354 | 119 |
-| simulate | ScaleSweep_simulate_fp4_swizzled | ok | - | 444.293 | 120.75 |
+Latency in milliseconds. Columns are `bsz`, with `dim=8192` for all rows.
+The `vllm` quantization baseline uses `vllm._custom_ops.scaled_fp4_quant`.
 
-### Quantization Bench Summary
+| kernel | 1 | 8 | 64 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vllm | 0.00584533 | 0.00656058 | 0.00802169 | 0.00940061 | 0.0122513 | 0.0162843 | 0.0253864 | 0.0406222 | 0.0760823 | 0.134747 |
+| ScaleSweep_MSE_round_swizzled | 0.00633512 | 0.00779489 | 0.00929372 | 0.0101168 | 0.0126149 | 0.0168762 | 0.0256528 | 0.0414329 | 0.0722104 | 0.135609 |
+| ScaleSweep_MSE_swizzled | 0.0064172 | 0.00809576 | 0.00927953 | 0.0100796 | 0.0125797 | 0.0163772 | 0.0256723 | 0.0410426 | 0.0726136 | 0.135918 |
+| ScaleSweep_swizzled | 0.00852955 | 0.0087639 | 0.010818 | 0.0129502 | 0.0164173 | 0.0222497 | 0.0327516 | 0.0573654 | 0.100374 | 0.187389 |
 
-The table below shows the `bsz=8192` rows from the generated bench results. The full table is in `result/benchmark_report.md`.
+### Quantization Error
 
-| kernel | layout | bsz | dim | latency_ms | mse | weighted_mse | max_abs_error |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| AbsMax_simulate_fp4_swizzled | swizzled | 8192 | 8192 | 0.297366 | 0.0171627 | - | 1.80059 |
-| ScaleSweep_MSE_simulate_fp4_swizzled | swizzled | 8192 | 8192 | 0.565407 | 0.0135958 | - | 1.34375 |
-| ScaleSweep_simulate_fp4_swizzled | swizzled | 8192 | 8192 | 0.810476 | 0.0135958 | 0.0135958 | 1.34375 |
+Error metrics are shown only for `bsz=8192`.
+
+| kernel | bsz | mse | weighted_mse | max_abs_error |
+| --- | --- | --- | --- | --- |
+| vllm | 8192 | 0.0171616 | - | 1.80059 |
+| ScaleSweep_MSE_round_swizzled | 8192 | 0.0135951 | - | 1.34375 |
+| ScaleSweep_MSE_swizzled | 8192 | 0.0135951 | - | 1.34375 |
+| ScaleSweep_swizzled | 8192 | 0.0135951 | 0.0135951 | 1.34375 |
+
+
+### GEMM Result
+
+The `vllm` GEMM baseline uses `vllm._custom_ops.cutlass_scaled_fp4_mm`.
+
+| kernel | status | latency_ms | mse | max_abs_error |
+| --- | --- | --- | --- | --- |
+| vllm | ok | 0.720463 | 562.049 | 132 |
+| ScaleSweep_MSE_swizzled | ok | 0.702919 | 444.243 | 117.812 |
+| ScaleSweep_MSE_round_swizzled | ok | 0.702615 | 444.243 | 117.812 |
+| ScaleSweep_swizzled | ok | 0.703141 | 444.177 | 115.625 |
