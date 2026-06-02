@@ -20,10 +20,20 @@ from kernel_ScaleSweep_MSE import (
     UPPER_BOUND as SCALESWEEP_MSE_UPPER_BOUND,
     scalesweep_quantize as mse_scalesweep_quantize,
 )
+from kernel_ScaleSweep_MSE_round import (
+    LOWER_BOUND as SCALESWEEP_MSE_ROUND_LOWER_BOUND,
+    UPPER_BOUND as SCALESWEEP_MSE_ROUND_UPPER_BOUND,
+    scalesweep_quantize as mse_round_scalesweep_quantize,
+)
 from kernel_ScaleSweep_MSE_simulate_fp4 import (
     LOWER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
     UPPER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
     scalesweep_quantize as mse_scalesweep_simulate_fp4_quantize,
+)
+from kernel_ScaleSweep_MSE_simulate_fp4_round import (
+    LOWER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_ROUND_LOWER_BOUND,
+    UPPER_BOUND as SCALESWEEP_MSE_SIMULATE_FP4_ROUND_UPPER_BOUND,
+    scalesweep_quantize as mse_round_scalesweep_simulate_fp4_quantize,
 )
 from kernel_ScaleSweep_simulate_fp4 import (
     LOWER_BOUND as SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
@@ -72,6 +82,14 @@ KERNELS = (
         min_sm=100,
     ),
     KernelCase(
+        name="ScaleSweep_MSE_round",
+        lower_bound=SCALESWEEP_MSE_ROUND_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_ROUND_UPPER_BOUND,
+        quantize=mse_round_scalesweep_quantize,
+        weighted=False,
+        min_sm=100,
+    ),
+    KernelCase(
         name="ScaleSweep_simulate_fp4",
         lower_bound=SCALESWEEP_SIMULATE_FP4_LOWER_BOUND,
         upper_bound=SCALESWEEP_SIMULATE_FP4_UPPER_BOUND,
@@ -83,6 +101,13 @@ KERNELS = (
         lower_bound=SCALESWEEP_MSE_SIMULATE_FP4_LOWER_BOUND,
         upper_bound=SCALESWEEP_MSE_SIMULATE_FP4_UPPER_BOUND,
         quantize=mse_scalesweep_simulate_fp4_quantize,
+        weighted=False,
+    ),
+    KernelCase(
+        name="ScaleSweep_MSE_simulate_fp4_round",
+        lower_bound=SCALESWEEP_MSE_SIMULATE_FP4_ROUND_LOWER_BOUND,
+        upper_bound=SCALESWEEP_MSE_SIMULATE_FP4_ROUND_UPPER_BOUND,
+        quantize=mse_round_scalesweep_simulate_fp4_quantize,
         weighted=False,
     ),
 )
