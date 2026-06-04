@@ -51,7 +51,7 @@ $$
 Therefore, `ScaleSweep_MSE` selects
 
 $$
-s_{\text{ScaleSweep\_MSE}}=
+s_{\mathrm{ScaleSweep\_MSE}}=
 \arg\min_{\substack{
 s\in G_{\text{FP8}},\
 I_{\text{E4M3}}(s)\in
@@ -78,7 +78,7 @@ $$
 Therefore, `ScaleSweep_MSE_round` selects
 
 $$
-s_{\text{ScaleSweep\_MSE\_round}}=
+s_{\mathrm{ScaleSweep\_MSE\_round}}=
 \arg\min_{\substack{
 s\in G_{\text{FP8}},\
 I_{\text{E4M3}}(s)\in
@@ -118,7 +118,7 @@ $$
 while the lower bound can reach the smallest positive FP8 value. Therefore, `ScaleSweep` approximately uses $s_{\text{base}}/2$ as the lower bound and selects
 
 $$
-s_{\text{ScaleSweep}}=
+s_{\mathrm{ScaleSweep}}=
 \arg\min_{\substack{
 s\in G_{\text{FP8}},\
 I_{\text{E4M3}}(s)\in
