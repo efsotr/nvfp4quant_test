@@ -8,7 +8,7 @@ import triton.testing as tts
 
 from bench import KERNEL_CASES, current_sm, should_skip_kernel
 from helper import DTYPE, SEED, DEVICE, error_stats, get_environment_info, get_nvfp4_global_scale, make_laplace, make_w
-from kernel_ScaleSweep_MSE import BLOCK_SIZE
+from kernels.kernel_ScaleSweep_MSE import BLOCK_SIZE
 
 
 DIM = 8192

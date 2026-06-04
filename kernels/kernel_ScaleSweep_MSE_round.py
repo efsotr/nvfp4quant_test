@@ -2,7 +2,7 @@ import torch
 import triton
 import triton.language as tl
 
-from kernel_vllm import round_up, vllm_swizzled_scale_offsets
+from kernels.kernel_vllm import round_up, vllm_swizzled_scale_offsets
 
 BLOCK_SIZE = 16
 LOWER_BOUND = -3
@@ -314,9 +314,7 @@ def scalesweep_quantize_kernel(
 
     base_scale = abs_max * (1.0 / 6.0)
     base_fp8 = base_scale.to(tl.float8e4nv)
-    base_raw = base_fp8.to(tl.uint8, bitcast=True).to(tl.int32) - (
-        base_fp8.to(tl.float32) > base_scale
-    ).to(tl.int32)
+    base_raw = base_fp8.to(tl.uint8, bitcast=True).to(tl.int32)
 
     best_mse = tl.full((BLOCKS_PER_PROGRAM,), float("inf"), tl.float32)
     best_scale_fp8 = tl.full((BLOCKS_PER_PROGRAM,), 0, tl.float8e4nv)

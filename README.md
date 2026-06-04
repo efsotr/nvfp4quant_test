@@ -2,7 +2,7 @@
 
 For details of ScaleSweep, see `ScaleSweep_paper/`. 
 
-> **Note:**  `kernel_ScaleSweep*.py` provides preliminary implementations of ScaleSweep and still requires further refinement.
+> **Note:**  `kernels/kernel_ScaleSweep*.py` provides preliminary implementations of ScaleSweep and still requires further refinement.
 
 NVFP4 quantization and GEMM benchmark scripts. Benchmark outputs are written as JSON under `result/`, and `generate_markdown.py` can convert those JSON files into `result/benchmark_report.md`.
 

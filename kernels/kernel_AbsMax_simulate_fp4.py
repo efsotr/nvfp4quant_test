@@ -1,4 +1,4 @@
-from kernel_ScaleSweep_MSE_simulate_fp4 import (
+from kernels.kernel_ScaleSweep_MSE_simulate_fp4 import (
     _load_normalized_16_cols,
     _max_abs_16,
     _pack_final_code_16_cols,
@@ -8,7 +8,7 @@ import torch
 import triton
 import triton.language as tl
 
-from kernel_vllm import swizzle_vllm_fp4_scale
+from kernels.kernel_vllm import swizzle_vllm_fp4_scale
 
 BLOCK_SIZE = 16
 

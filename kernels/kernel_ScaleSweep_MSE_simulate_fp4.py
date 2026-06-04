@@ -1,4 +1,4 @@
-from kernel_ScaleSweep_MSE import (
+from kernels.kernel_ScaleSweep_MSE import (
     SCALESWEEP_CONFIGS,
     _load_normalized_16_cols,
     _max_abs_16,
@@ -9,7 +9,7 @@ import triton
 import triton.language as tl
 from triton.language.extra import libdevice
 
-from kernel_vllm import round_up, vllm_swizzled_scale_offsets
+from kernels.kernel_vllm import round_up, vllm_swizzled_scale_offsets
 
 BLOCK_SIZE = 16
 LOWER_BOUND = -3

@@ -1,99 +1,90 @@
-from kernel_ScaleSweep_MSE import (
+from kernels.kernel_ScaleSweep import _load_shared_importance_16_cols
+from kernels.kernel_ScaleSweep_MSE_simulate_fp4 import (
     SCALESWEEP_CONFIGS,
+    fp32_round_to_fp4_value,
     _load_normalized_16_cols,
     _max_abs_16,
+    _pack_final_code_16_cols,
 )
 
 import torch
 import triton
 import triton.language as tl
-from triton.language.extra import libdevice
 
-from kernel_vllm import round_up, vllm_swizzled_scale_offsets
+from kernels.kernel_vllm import round_up, vllm_swizzled_scale_offsets
 
 BLOCK_SIZE = 16
-LOWER_BOUND = -3
+LOWER_BOUND = -8
 UPPER_BOUND = 7
 
 
 @triton.jit
-def fp32_round_to_fp4_code(x):
-    ax = tl.abs(x)
-    le2 = ax <= 2.0
-    le4 = ax <= 4.0
-    exp = tl.where(le2, 0.5, tl.where(le4, 1.0, 2.0))
-    r = libdevice.round(ax / exp)
-    mag = tl.where(le2, r, tl.where(le4, r + 2.0, tl.minimum(r + 4.0, 7.0))).to(tl.uint8)
-    sign = (x < 0.0).to(tl.uint8) << 3
-    return mag | sign
-
-
-@triton.jit
-def fp32_round_to_fp4_value(x):
-    ax = tl.abs(x)
-    exp = tl.where(ax <= 2.0, 0.5, tl.where(ax <= 4.0, 1.0, 2.0))
-    q = libdevice.round(x / exp) * exp
-    return tl.minimum(tl.maximum(q, -6.0), 6.0)
-
-
-@triton.jit
-def _fp32x16_to_e2m1_u32x2(
-    x0, x1, x2, x3,
-    x4, x5, x6, x7,
-    x8, x9, x10, x11,
-    x12, x13, x14, x15,
-):
-    b0 = fp32_round_to_fp4_code(x0).to(tl.uint32) | (fp32_round_to_fp4_code(x1).to(tl.uint32) << 4)
-    b1 = fp32_round_to_fp4_code(x2).to(tl.uint32) | (fp32_round_to_fp4_code(x3).to(tl.uint32) << 4)
-    b2 = fp32_round_to_fp4_code(x4).to(tl.uint32) | (fp32_round_to_fp4_code(x5).to(tl.uint32) << 4)
-    b3 = fp32_round_to_fp4_code(x6).to(tl.uint32) | (fp32_round_to_fp4_code(x7).to(tl.uint32) << 4)
-    b4 = fp32_round_to_fp4_code(x8).to(tl.uint32) | (fp32_round_to_fp4_code(x9).to(tl.uint32) << 4)
-    b5 = fp32_round_to_fp4_code(x10).to(tl.uint32) | (fp32_round_to_fp4_code(x11).to(tl.uint32) << 4)
-    b6 = fp32_round_to_fp4_code(x12).to(tl.uint32) | (fp32_round_to_fp4_code(x13).to(tl.uint32) << 4)
-    b7 = fp32_round_to_fp4_code(x14).to(tl.uint32) | (fp32_round_to_fp4_code(x15).to(tl.uint32) << 4)
-
-    lo = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-    hi = b4 | (b5 << 8) | (b6 << 16) | (b7 << 24)
-    return lo, hi
-
-
-@triton.jit
-def _fp32_pair_e2m1_roundtrip_squared_error(x0, x1):
+def _fp32_pair_e2m1_roundtrip_weighted_squared_error(x0, x1, iw0, iw1):
     q0 = fp32_round_to_fp4_value(x0)
     q1 = fp32_round_to_fp4_value(x1)
     d0 = q0 - x0
     d1 = q1 - x1
-    return d0 * d0 + d1 * d1
+    return d0 * d0 * iw0 + d1 * d1 * iw1
 
 
 @triton.jit
-def _fp32x16_e2m1_roundtrip_squared_error(
+def _fp32x16_e2m1_roundtrip_weighted_squared_error(
     x0, x1, x2, x3,
     x4, x5, x6, x7,
     x8, x9, x10, x11,
     x12, x13, x14, x15,
+    iw0, iw1, iw2, iw3,
+    iw4, iw5, iw6, iw7,
+    iw8, iw9, iw10, iw11,
+    iw12, iw13, iw14, iw15,
 ):
-    s01 = _fp32_pair_e2m1_roundtrip_squared_error(x0, x1)
-    s23 = _fp32_pair_e2m1_roundtrip_squared_error(x2, x3)
-    s45 = _fp32_pair_e2m1_roundtrip_squared_error(x4, x5)
-    s67 = _fp32_pair_e2m1_roundtrip_squared_error(x6, x7)
-    s89 = _fp32_pair_e2m1_roundtrip_squared_error(x8, x9)
-    sAB = _fp32_pair_e2m1_roundtrip_squared_error(x10, x11)
-    sCD = _fp32_pair_e2m1_roundtrip_squared_error(x12, x13)
-    sEF = _fp32_pair_e2m1_roundtrip_squared_error(x14, x15)
+    s01 = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x0, x1, iw0, iw1)
+    s23 = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x2, x3, iw2, iw3)
+    s45 = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x4, x5, iw4, iw5)
+    s67 = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x6, x7, iw6, iw7)
+
+    s89 = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x8, x9, iw8, iw9)
+    sAB = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x10, x11, iw10, iw11)
+    sCD = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x12, x13, iw12, iw13)
+    sEF = _fp32_pair_e2m1_roundtrip_weighted_squared_error(x14, x15, iw14, iw15)
 
     return ((s01 + s23) + (s45 + s67)) + ((s89 + sAB) + (sCD + sEF))
 
 
 @triton.jit
-def _squared_error_16_cols_after_e2m1_roundtrip(
+def _weighted_squared_error_16_cols_after_e2m1_roundtrip(
     v0, v1, v2, v3,
     v4, v5, v6, v7,
     v8, v9, v10, v11,
     v12, v13, v14, v15,
+    iw0, iw1, iw2, iw3,
+    iw4, iw5, iw6, iw7,
+    iw8, iw9, iw10, iw11,
+    iw12, iw13, iw14, iw15,
     inv_scale,
     scale,
 ):
+    """
+    v0..v15:
+      each [BLOCKS_PER_PROGRAM], already global-scale normalized.
+
+    iw0..iw15:
+      importance weights loaded from imp[0, col].
+
+    inv_scale:
+      [BLOCKS_PER_PROGRAM]
+
+    scale:
+      [BLOCKS_PER_PROGRAM]
+
+    Computes weighted MSE:
+      x = vals / scale
+      q = e2m1_round(x)
+      weighted_mse = sum_j (q_j - x_j)^2 * imp_j * scale^2
+
+    Equivalent to:
+      sum_j (q_j * scale - vals_j)^2 * imp_j
+    """
     x0 = v0 * inv_scale
     x1 = v1 * inv_scale
     x2 = v2 * inv_scale
@@ -111,47 +102,18 @@ def _squared_error_16_cols_after_e2m1_roundtrip(
     x14 = v14 * inv_scale
     x15 = v15 * inv_scale
 
-    squared_error = _fp32x16_e2m1_roundtrip_squared_error(
+    weighted_squared_error = _fp32x16_e2m1_roundtrip_weighted_squared_error(
         x0, x1, x2, x3,
         x4, x5, x6, x7,
         x8, x9, x10, x11,
         x12, x13, x14, x15,
-    )
-    return squared_error * (scale * scale)
-
-
-@triton.jit
-def _pack_final_code_16_cols(
-    v0, v1, v2, v3,
-    v4, v5, v6, v7,
-    v8, v9, v10, v11,
-    v12, v13, v14, v15,
-    inv_scale,
-):
-    x0 = v0 * inv_scale
-    x1 = v1 * inv_scale
-    x2 = v2 * inv_scale
-    x3 = v3 * inv_scale
-    x4 = v4 * inv_scale
-    x5 = v5 * inv_scale
-    x6 = v6 * inv_scale
-    x7 = v7 * inv_scale
-    x8 = v8 * inv_scale
-    x9 = v9 * inv_scale
-    x10 = v10 * inv_scale
-    x11 = v11 * inv_scale
-    x12 = v12 * inv_scale
-    x13 = v13 * inv_scale
-    x14 = v14 * inv_scale
-    x15 = v15 * inv_scale
-
-    return _fp32x16_to_e2m1_u32x2(
-        x0, x1, x2, x3,
-        x4, x5, x6, x7,
-        x8, x9, x10, x11,
-        x12, x13, x14, x15,
+        iw0, iw1, iw2, iw3,
+        iw4, iw5, iw6, iw7,
+        iw8, iw9, iw10, iw11,
+        iw12, iw13, iw14, iw15,
     )
 
+    return weighted_squared_error * (scale * scale)
 
 @triton.autotune(
     configs=SCALESWEEP_CONFIGS,
@@ -160,6 +122,7 @@ def _pack_final_code_16_cols(
 @triton.jit
 def scalesweep_quantize_kernel(
     weight_ptr,
+    imp_ptr,
     scale_ptr,
     code_i32_ptr,
     global_scale_inv_ptr,
@@ -176,7 +139,6 @@ def scalesweep_quantize_kernel(
 
     pid = tl.program_id(0)
     block_start = pid * BLOCKS_PER_PROGRAM
-
     block_offsets = block_start + tl.arange(0, BLOCKS_PER_PROGRAM)
     block_mask = block_offsets < NUM_BLOCKS
 
@@ -191,7 +153,21 @@ def scalesweep_quantize_kernel(
         block_mask,
         global_scale_inv,
     )
-    
+
+    (
+        iw0, iw1, iw2, iw3,
+        iw4, iw5, iw6, iw7,
+        iw8, iw9, iw10, iw11,
+        iw12, iw13, iw14, iw15,
+    ) = _load_shared_importance_16_cols(
+        imp_ptr,
+        block_offsets,
+        block_mask,
+        BLOCKS_PER_OUT,
+    )
+
+    # iw0, iw1, iw2, iw3, iw4, iw5, iw6, iw7, iw8, iw9, iw10, iw11, iw12, iw13, iw14, iw15 = v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15
+
     abs_max = _max_abs_16(
         v0, v1, v2, v3,
         v4, v5, v6, v7,
@@ -201,7 +177,9 @@ def scalesweep_quantize_kernel(
 
     base_scale = abs_max * (1.0 / 6.0)
     base_fp8 = base_scale.to(tl.float8e4nv)
-    base_raw = base_fp8.to(tl.uint8, bitcast=True).to(tl.int32)
+    base_raw = base_fp8.to(tl.uint8, bitcast=True).to(tl.int32) - (
+        base_fp8.to(tl.float32) > base_scale
+    ).to(tl.int32)
 
     best_mse = tl.full((BLOCKS_PER_PROGRAM,), float("inf"), tl.float32)
     best_scale_fp8 = tl.full((BLOCKS_PER_PROGRAM,), 0, tl.float8e4nv)
@@ -216,11 +194,15 @@ def scalesweep_quantize_kernel(
         scale_i = scale_fp8.to(tl.float32)
         inv_scale_i = 1.0 / scale_i
 
-        mse_i = _squared_error_16_cols_after_e2m1_roundtrip(
+        mse_i = _weighted_squared_error_16_cols_after_e2m1_roundtrip(
             v0, v1, v2, v3,
             v4, v5, v6, v7,
             v8, v9, v10, v11,
             v12, v13, v14, v15,
+            iw0, iw1, iw2, iw3,
+            iw4, iw5, iw6, iw7,
+            iw8, iw9, iw10, iw11,
+            iw12, iw13, iw14, iw15,
             inv_scale_i,
             scale_i,
         )
@@ -264,6 +246,7 @@ def scalesweep_quantize_kernel(
 
 def scalesweep_quantize(
     weight,
+    imp,
     global_scale_inv,
     block_size,
     lower_bound,
@@ -272,8 +255,21 @@ def scalesweep_quantize(
 ):
     if block_size != 16:
         raise ValueError("optimized kernel is specialized for block_size == 16")
-    if weight.numel() % 16 != 0:
-        raise ValueError("weight.numel() must be divisible by 16")
+    if weight.ndim != 2:
+        raise ValueError(f"weight must be 2D [bsz, dim], got {tuple(weight.shape)}")
+    if weight.shape[-1] % 16 != 0:
+        raise ValueError("weight.shape[-1] must be divisible by 16")
+    if imp.shape != (1, weight.shape[-1]):
+        raise ValueError(
+            f"imp must have shape [1, d_in], got {tuple(imp.shape)}, expected {(1, weight.shape[-1])}"
+        )
+    if weight.device != imp.device:
+        raise ValueError(f"weight and imp must be on the same device: {weight.device} vs {imp.device}")
+
+    if not weight.is_contiguous():
+        weight = weight.contiguous()
+    if not imp.is_contiguous():
+        imp = imp.contiguous()
 
     num_blocks = weight.numel() // 16
     blocks_per_out = weight.shape[-1] // 16
@@ -300,6 +296,7 @@ def scalesweep_quantize(
 
     scalesweep_quantize_kernel[meta](
         weight,
+        imp,
         scale,
         code_i32,
         global_scale_inv,

@@ -17,8 +17,8 @@ from helper import (
     make_laplace,
     make_w,
 )
-from kernel_ScaleSweep_MSE import BLOCK_SIZE
-from kernel_vllm import unswizzle_vllm_fp4_scale
+from kernels.kernel_ScaleSweep_MSE import BLOCK_SIZE
+from kernels.kernel_vllm import unswizzle_vllm_fp4_scale
 
 
 DIM = 8192
