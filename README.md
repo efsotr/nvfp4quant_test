@@ -8,7 +8,7 @@ For details of ScaleSweep, see [ScaleSweep_paper/](./ScaleSweep_paper/).
 
 * `bench.py` runs quantization tests and writes `result/bench_<kernel>_results.json`. The inputs are sampled from a Gaussian distribution. For ScaleSweep, the importance scores are all ones.
 
-* `gemm_simulate_nvfp4_perf.py` and `gemm_nvfp4_perf.py` run GEMM tests and write `result/gemm_simulate_nvfp4_perf_results.json` and `result/gemm_nvfp4_perf_results.json`, respectively. Both GEMM scripts use the same JSON schema and default output directory. The input and weight tensors are sampled from `Laplace(loc=0, scale=1)`. For ScaleSweep, the importance scores for weight tensors are based on the activation input-channel square norm, and vice versa.
+* `gemm_simulate_nvfp4_perf.py` and `gemm_nvfp4_perf.py` run GEMM tests and write `result/gemm_simulate_nvfp4_perf_results.json` and `result/gemm_nvfp4_perf_results.json`, respectively. The input and weight tensors are sampled from `Laplace(loc=0, scale=1)`. For ScaleSweep, the importance scores for weight tensors are based on the activation input-channel square norm, and vice versa.
 
 * `generate_markdown.py` generates the benchmark report from the result JSON files and writes `result/benchmark_report.md`.
 
