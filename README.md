@@ -1,10 +1,17 @@
-# Preliminary ScaleSweep NVFP4 Quant-Operator/GEMM Speed and Quantization Error Evaluation
+# Preliminary ScaleSweep NVFP4 Quantization/GEMM Test
 
-For details of ScaleSweep, see `ScaleSweep_paper/`. 
+For details of ScaleSweep, see [ScaleSweep_paper/](./ScaleSweep_paper/). 
 
 > **Note:**  `kernels/kernel_ScaleSweep*.py` provides preliminary implementations of ScaleSweep and still requires further refinement.
 
-NVFP4 quantization and GEMM benchmark scripts. Benchmark outputs are written as JSON under `result/`, and `generate_markdown.py` can convert those JSON files into `result/benchmark_report.md`.
+## Scripts
+
+* `bench.py` runs quantization tests and writes `result/bench_<kernel>_results.json`. The inputs are sampled from a Gaussian distribution. For ScaleSweep, the importance scores are all ones.
+
+* `gemm_simulate_nvfp4_perf.py` and `gemm_nvfp4_perf.py` run GEMM tests and write `result/gemm_simulate_nvfp4_perf_results.json` and `result/gemm_nvfp4_perf_results.json`, respectively. Both GEMM scripts use the same JSON schema and default output directory. The input and weight tensors are sampled from `Laplace(loc=0, scale=1)`. For ScaleSweep, the importance scores for weight tensors are based on the activation input-channel square norm, and vice versa.
+
+* `generate_markdown.py` generates the benchmark report from the result JSON files and writes `result/benchmark_report.md`.
+
 
 ## Run
 
@@ -22,15 +29,6 @@ For `sm < 100` hardware, use the simulate swizzled path:
 
 The scripts run the matching `bench.py` kernels, run the matching GEMM script, and write `result/benchmark_report.md`.
 
-## Outputs
-
-- `bench.py` writes `result/bench_<kernel>_results.json`.
-- `gemm_simulate_nvfp4_perf.py` writes `result/gemm_simulate_nvfp4_perf_results.json`.
-- `gemm_nvfp4_perf.py` writes `result/gemm_nvfp4_perf_results.json`.
-- `generate_markdown.py` writes `result/benchmark_report.md`.
-
-Both GEMM scripts use the same JSON shape and default output directory. GEMM input and weight tensors use `Laplace(loc=0, scale=1)`. Input-channel square norm uses `mean(x^2)` instead of `sum(x^2)`.
-
 ## Current Results
 
 The tables below are built from the current files under `result/`.
@@ -43,7 +41,7 @@ The tables below are built from the current files under `result/`.
 
 ### Quantization Speed
 
-Latency in milliseconds. Columns are `bsz`, with `dim=8192` for all rows.
+Latency in ms. Columns are `bsz`, with `dim=8192` for all rows.
 The `vllm` quantization baseline uses `vllm._custom_ops.scaled_fp4_quant`.
 
 | kernel | 1 | 8 | 64 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 |
@@ -67,7 +65,7 @@ Error metrics are shown only for `bsz=8192`.
 
 ### GEMM Result
 
-The `vllm` GEMM baseline uses `vllm._custom_ops.cutlass_scaled_fp4_mm`.
+GEMM uses `vllm._custom_ops.cutlass_scaled_fp4_mm`.
 
 | kernel | status | mse | max_abs_error |
 | --- | --- | --- | --- |
