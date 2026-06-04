@@ -51,7 +51,7 @@ $$
 Therefore, `ScaleSweep_MSE` selects
 
 $$
-s_{\mathrm{ScaleSweep\_MSE}}=
+s_{\mathrm{ScaleSweep\ MSE}}=
 \arg\min_{\substack{
 s\in G_{\text{FP8}},\
 I_{\text{E4M3}}(s)\in
@@ -78,7 +78,7 @@ $$
 Therefore, `ScaleSweep_MSE_round` selects
 
 $$
-s_{\mathrm{ScaleSweep\_MSE\_round}}=
+s_{\mathrm{ScaleSweep\ MSE\ round}}=
 \arg\min_{\substack{
 s\in G_{\text{FP8}},\
 I_{\text{E4M3}}(s)\in
