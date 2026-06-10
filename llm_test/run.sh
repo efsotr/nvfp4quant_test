@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export HF_ENDPOINT="https://hf-mirror.com"
 
 MODEL_ID="Llama-3.2-1B-Instruct"
 SAVE_DIR="Llama-3.2-1B-Instruct-NVFP4"
