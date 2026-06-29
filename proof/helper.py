@@ -26,7 +26,7 @@ def fp8_value_from_bits(bits: int) -> Fraction:
         return Fraction(b, 512)
     return (Fraction(1) + Fraction(b, 8)) * pow2_frac(a - 7)
 
-FP8 = [(bits, fp8_value_from_bits(bits)) for bits in range(1, 128)]
+FP8 = [(bits, fp8_value_from_bits(bits)) for bits in range(1, 127)]
 
 def fmt_decimal(x: Fraction, ndigits: int = 6) -> str:
     return f"{float(x):.{ndigits}g}"

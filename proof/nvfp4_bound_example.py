@@ -8,14 +8,23 @@ BoundKey = Tuple[str, str, int, int]
 Example = Tuple[BoundKey, List[float]]
 
 # Format:
-#   ((upper/lower, normal/subnormal, b, signed_offset), y_values)
+#   ((upper/lower, normal/subnormal/saturation, b, signed_offset), y_values)
+#
+# q0_bits is the positive FP8 bit-pattern, not the numeric FP8 value.
+# It is reconstructed from part and b:
+#   normal:     q0_bits = (7 << 3) | b, b = 0,...,7
+#   subnormal:  q0_bits = b,          b = 1,...,7
+#   saturation: q0_bits = 120 + b,    b = 0,...,6
 #
 # The verifier forms
-#   q0 = value(q0_bits), x_i = q0 * y_i,
+#   q0_value = value(q0_bits), x_i = q0_value * y_i,
 # and checks:
 #   1. len(y_values) == 16,
-#   2. round_FP8(max_i |x_i| / 6) has the requested b,
-#   3. the unique best FP8 scale for x has bits q0_bits + signed_offset.
+#   2. round_FP8(max_i |x_i| / 6) returns the FP8 value whose bit-pattern
+#      is q0_bits,
+#   3. the unique best positive finite FP8 scale for x has bit-pattern
+#      q0_bits + signed_offset.
+
 EXAMPLES: List[Example] = [
     (("upper", "normal", 0, 6), [
         2.625, 2.625, 3.4375, 5.062813,
@@ -200,6 +209,48 @@ EXAMPLES: List[Example] = [
         0.428571, 3.214286, 3.214286, 3.214286,
         5.0, 5.0, 5.357143, 5.571434,
     ]),
+    (("lower", "saturation", 0, -3), [
+        0.375, 0.375, 0.375, 0.375,
+        0.375, 0.378516, 0.378516, 0.378516,
+        3.125, 4.434609, 4.434609, 4.936641,
+        4.936641, 4.936641, 4.936641, 5.812506,
+    ]),
+    (("lower", "saturation", 1, -3), [
+        0.361111, 0.361111, 0.361111, 0.361111,
+        0.361111, 0.361111, 0.361111, 0.361111,
+        0.361111, 4.166667, 4.333333, 4.333333,
+        4.777708, 4.777708, 4.999375, 5.666672,
+    ]),
+    (("lower", "saturation", 2, -3), [
+        3.0, 3.0, 3.0, 3.0,
+        3.0, 3.0, 4.199995, 4.199995,
+        4.200005, 4.55, 4.666667, 4.666667,
+        4.899995, 4.899995, 4.899995, 5.700005,
+    ]),
+    (("lower", "saturation", 3, -3), [
+        2.863636, 2.863636, 2.863636, 2.863636,
+        2.863636, 2.95455, 2.95455, 2.95455,
+        2.95455, 2.95455, 4.45454, 4.45454,
+        4.666667, 4.846154, 4.846154, 5.727278,
+    ]),
+    (("lower", "saturation", 4, -3), [
+        2.499995, 2.499995, 2.5, 2.916672,
+        2.916672, 3.0, 3.0, 3.0,
+        3.0, 3.0, 3.0, 3.0,
+        3.0, 4.583338, 4.9, 5.750005,
+    ]),
+    (("lower", "saturation", 5, -3), [
+        0.384615, 0.384615, 4.846154, 0.384615,
+        0.384615, 4.846154, 4.307692, 0.384615,
+        4.846154, 4.846154, 0.384615, 4.307692,
+        0.384615, 0.384615, 0.384615, 5.769237,
+    ]),
+    (("lower", "saturation", 6, -4), [
+        2.750005, 2.750005, 3.928571, 3.928571,
+        4.166667, 4.285709, 4.285709, 4.285709,
+        4.285714, 4.333333, 4.375, 4.666667,
+        5.0, 5.0, 5.0, 5.785719,
+    ]),
 ]
 
 
@@ -210,6 +261,9 @@ def q0_bits_from_part_b(part: str, b: int) -> int:
     if part == "subnormal":
         assert 1 <= b <= 7
         return b
+    if part == "saturation":
+        assert 0 <= b <= 6
+        return 120 + b
     raise ValueError(f"unknown part: {part}")
 
 
@@ -238,7 +292,7 @@ def verify_example(example: Example) -> None:
     (kind, part, b, signed_offset), y_values = example
 
     assert kind in {"upper", "lower"}
-    assert part in {"normal", "subnormal"}
+    assert part in {"normal", "subnormal", "saturation"}
     assert len(y_values) == 16
 
     q0_bits = q0_bits_from_part_b(part, b)
@@ -292,7 +346,6 @@ def verify_examples() -> None:
         seen.add(key)
         verify_example(example)
 
-    assert len(EXAMPLES) == 30
     print()
     print("All examples verified.")
 
