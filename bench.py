@@ -124,7 +124,7 @@ def run_vllm(args, sm_count):
             lambda: scaled_fp4_quant(case["weight"], case["global_scale_inv"]),
             args,
         )
-        add_error_row(results, case, ms, code, scale)
+        add_error_row(results, case, ms, code, scale, weighted=True)
     return results
 
 
@@ -146,7 +146,7 @@ def run_mse(args, sm_count):
             ),
             args,
         )
-        add_error_row(results, case, ms, code, scale)
+        add_error_row(results, case, ms, code, scale, weighted=True)
     return results
 
 
