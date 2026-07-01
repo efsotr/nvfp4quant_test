@@ -70,21 +70,15 @@ def get_environment_info():
     return info
 
 
-def make_laplace(shape, *, seed=SEED, device=DEVICE, dtype=DTYPE, loc=0.0, scale=1.0):
+def make_gaussian(shape, *, seed=SEED, device=DEVICE, dtype=DTYPE, loc=0.0, scale=1.0):
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
-    p = torch.rand(shape, device=device, dtype=torch.float32, generator=generator)
-    p = p.clamp_(torch.finfo(torch.float32).eps, 1.0 - torch.finfo(torch.float32).eps)
-    x = torch.where(
-        p < 0.5,
-        loc + scale * torch.log(2.0 * p),
-        loc - scale * torch.log(2.0 * (1.0 - p)),
-    )
-    return x.to(dtype).contiguous()
+    x = torch.normal(loc=loc, scale=scale, size=shape, generator=generator, device=device, dtype=dtype)
+    return x
 
 
 def make_w(M=4096, K=4096):
-    return make_laplace((M, K), seed=SEED)
+    return make_gaussian((M, K), seed=SEED)
 
 
 def make_imp(kind, dim, device):
