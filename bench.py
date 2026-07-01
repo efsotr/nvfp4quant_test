@@ -87,7 +87,7 @@ def make_results(name, args, sm_count, **extra):
         "sm_count": sm_count,
         "dim": args.dim,
         "scale_layout": "swizzled",
-        "weight_distribution": "Laplace(loc=0, scale=1)",
+        "weight_distribution": "Normal(0, 1)",
         "environment": get_environment_info(),
         "results": [],
     }
